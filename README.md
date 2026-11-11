@@ -23,9 +23,10 @@ fiscal wording, country mapping, retries and idempotency each time. This service
 - Multi-tenant: one API key and one Fatture in Cloud company per tenant, one OAuth app per instance.
 - Customer categories: `IT_PRIVATE`, `EU_PRIVATE`, `EXTRAEU_PRIVATE` (B2C) and `IT_BUSINESS` (B2B with SDI code or PEC).
 - Fiscal regimes: `FORFETTARIO` and `ORDINARIO`, with preset statements (art. 1 c. 58 L. 190/2014, art. 7-ter DPR 633/72) overridable per tenant and per category.
-- €2 stamp duty (imposta di bollo) on forfettario invoices above €77.47: charged on top, included in the price, or disabled, per tenant.
+- €2 stamp duty (imposta di bollo) on forfettario invoices above €77.47: charged to the customer as a separate line, borne by the seller, or disabled, per tenant.
 - Idempotent creation (`idempotencyKey`), a PENDING row written before the FIC call, FAILED rows that can be retried.
-- Dry-run mode per tenant (default on): Fatture in Cloud validates the invoice without saving it.
+- Dry-run mode per tenant (default on): the invoice is validated with Fatture in Cloud's totals endpoint and nothing is created in Fatture in Cloud.
+- Every real invoice is pre-checked with the same totals endpoint, so a payment mismatch fails before a document number is used.
 - Optional automatic transmission to SDI after creation.
 - Courtesy PDF download streamed from Fatture in Cloud.
 - OAuth tokens encrypted at rest (AES-256-GCM); token refresh serialized per tenant with a database row lock, because Fatture in Cloud rotates refresh tokens.
@@ -50,7 +51,7 @@ Compose starts MySQL 8, runs `prisma migrate deploy` once, then starts the app o
 1. Open `http://localhost:3000/admin` and sign in with `ADMIN_PASSWORD`.
 2. Create a tenant. **Copy the API key**: it is shown once.
 3. On the tenant page click **Connect Fatture in Cloud**, authorize, and choose the company if your user has more than one.
-4. Choose the VAT type, payment account and payment method, set the numeration (for example `/A`) and the fiscal regime. Save.
+4. Choose the VAT type, payment account and payment method, set the numeration (for example `/A`) and the fiscal regime. With the default stamp duty mode (*Charged to customer*) also choose the **stamp duty VAT type** (a VAT type excluded under art. 15 DPR 633/72). Save.
 5. Send a test invoice (the tenant starts in dry-run mode). When the result is right, untick **Dry run**.
 
 For a VPS with nginx and pm2 instead of Docker, see [docs/deploy-pm2.md](docs/deploy-pm2.md).
@@ -150,8 +151,9 @@ curl -X POST https://invoices.example.com/api/v1/invoices \
 Behaviour:
 
 - **Idempotency.** The same `idempotencyKey` for the same tenant returns the existing invoice with `200` and never calls Fatture in Cloud twice. A FAILED invoice is returned as is; use the retry endpoint.
-- **Failures.** If Fatture in Cloud rejects the invoice, the row becomes `FAILED` and the response is `502` with the invoice plus `"error": { "code": "fic_error", ... }`.
-- **Dry run.** `"dryRun": true` forces a dry run. `false` cannot turn off a tenant that is in dry-run mode. Dry-run invoices are `ISSUED` with `ficDocumentId: null`.
+- **Totals pre-check.** Before creating a document the service sends the same payload to Fatture in Cloud's `POST /c/{company_id}/issued_documents/totals`, which computes the totals without creating anything. If the recorded payment does not equal the amount due computed by Fatture in Cloud, the invoice is `FAILED` with both amounts in `errorMessage` and no document number is consumed.
+- **Failures.** If Fatture in Cloud rejects the invoice (totals or creation), the row becomes `FAILED` and the response is `502` with the invoice plus `"error": { "code": "fic_error", ... }`.
+- **Dry run.** `"dryRun": true` forces a dry run. `false` cannot turn off a tenant that is in dry-run mode. Fatture in Cloud has no dry run on document creation (its `dry_run` option is ignored and the document is created), so a dry run only calls the totals endpoint: nothing is created in Fatture in Cloud and nothing is sent to SDI. A dry run that passes is `ISSUED` with `dryRun: true`, `ficDocumentId: null` and `number: null`; a payment mismatch or a Fatture in Cloud error makes it `FAILED`. The totals endpoint does not run every check of document creation, so a passing dry run is a strong but not complete validation.
 - **Not ready.** A tenant that is not connected, needs reconnection or misses configuration gets `409` (`fic_not_connected`, `fic_reconnect_required`, `tenant_not_configured`) and no invoice row is created.
 - `paidAt` (`YYYY-MM-DD`) sets the document and payment date; default is today in Europe/Rome.
 
@@ -177,7 +179,7 @@ curl -X POST -H "Authorization: Bearer $FICI_API_KEY" https://invoices.example.c
 curl https://invoices.example.com/api/v1/health
 ```
 
-- `pdf` returns `409` when the invoice is not ISSUED or is a dry run (no document exists).
+- `pdf` returns `409` when the invoice is not ISSUED or is a dry run (nothing exists in Fatture in Cloud).
 - `retry` works on `FAILED` invoices (and on ISSUED invoices whose automatic SDI send failed). It uses the tenant's current configuration. It returns `409` for other statuses or when the payload was purged.
 - Tenants only see their own invoices: another tenant's id returns `404`.
 
@@ -194,17 +196,20 @@ curl https://invoices.example.com/api/v1/health
 - Statements are printed on the invoice line and in the notes. Override them per category in the admin panel.
 - The €2 stamp duty follows the tenant's **stamp duty mode** (admin panel → *Stamp duty*). It only applies to FORFETTARIO invoices whose `amountCents` is above €77.47:
 
-  | Mode | Invoice line | `stamp_duty` | Total / recorded payment | Example, `amountCents: 10000` |
+  On e-invoices Fatture in Cloud does **not** add `stamp_duty` to the amount due: the field only declares
+  that the (virtual) stamp was paid. Charging it to the customer therefore needs a separate invoice line.
+
+  | Mode | Invoice lines | `stamp_duty` | Total / recorded payment | Example, `amountCents: 10000` |
   | --- | --- | --- | --- | --- |
-  | `CHARGED_TO_CUSTOMER` (default) | `amountCents` | €2 | `amountCents + 200` | line €100, bollo €2, paid €102 |
-  | `INCLUDED` | `amountCents − 200` | €2 | `amountCents` | line €98, bollo €2, paid €100 |
+  | `CHARGED_TO_CUSTOMER` (default) | `amountCents` + `BOLLO` "Rimborso imposta di bollo" €2 | €2 | `amountCents + 200` | lines €100 + €2, bollo €2 declared, paid €102 |
+  | `INCLUDED` | `amountCents` | €2 | `amountCents` | line €100, bollo €2 declared, paid €100 |
   | `DISABLED` | `amountCents` | none | `amountCents` | line €100, paid €100 |
 
-  - `CHARGED_TO_CUSTOMER`: the customer pays the €2 on top. Use it only if your checkout actually collects `amount + €2`.
-  - `INCLUDED`: the €2 is part of the price the customer already paid. **Recommended for payment-processor flows with fixed prices** (Stripe Checkout, Paddle, app stores): the invoice total matches the charge exactly. Between €77.48 and €79.47 the stamp is still applied and the line ends up at or below €77.47: an unneeded €2 stamp is cheaper than a missing one that was due.
+  - `CHARGED_TO_CUSTOMER`: the customer pays the €2 on top, as a second invoice line with the tenant's **stamp duty VAT type** (choose a VAT type excluded under art. 15 DPR 633/72 in the admin panel). Use it only if your checkout actually collects `amount + €2`. When the stamp applies and no stamp duty VAT type is set, the API returns `409 tenant_not_configured`.
+  - `INCLUDED`: the seller bears the stamp. The customer pays exactly `amountCents` and the invoice total is `amountCents`; the €2 is declared on the invoice and paid by the seller to the tax authority. **Recommended for payment-processor flows with fixed prices** (Stripe Checkout, Paddle, app stores): the invoice total matches the charge exactly.
   - `DISABLED`: no stamp duty at all, for tenants that handle it elsewhere.
 
-  In every mode the API response keeps your `amountCents` and reports `stampDutyCents` (0 or 200). Check the choice with your accountant.
+  In every mode the API response keeps your `amountCents` and reports `stampDutyCents` (0 or 200, the declared stamp). Check the choice with your accountant.
 - `IT_BUSINESS` invoices are B2B: the customer's partita IVA, SDI recipient code (`0000000` + PEC when missing).
 - Other invoices are B2C, with the SDI payment method from the tenant (`MP08`, payment card, by default).
 - Country names are mapped from ISO codes to the Italian names Fatture in Cloud expects.

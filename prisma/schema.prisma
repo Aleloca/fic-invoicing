@@ -24,10 +24,12 @@ enum CustomerCategory {
 }
 
 /// How the €2 stamp duty (imposta di bollo) is handled on FORFETTARIO invoices above €77.47.
+/// On e-invoices FIC never adds `stamp_duty` to the amount due: it only declares the virtual stamp.
 enum StampDutyMode {
-  /// Added on top of amountCents: the customer pays amount + €2.
+  /// Charged to the customer with a separate €2 "Rimborso imposta di bollo" line: the customer pays amount + €2.
+  /// Needs Tenant.stampDutyVatTypeId.
   CHARGED_TO_CUSTOMER
-  /// Part of amountCents: the invoice line is amount - €2, the customer pays amount.
+  /// Borne by the seller: the line is amountCents, the customer pays amount, the €2 is only declared.
   INCLUDED
   /// Never applied.
   DISABLED
@@ -79,9 +81,11 @@ model Tenant {
   eiPaymentMethod     String        @default("MP08")
   /// €2 stamp duty (imposta di bollo) on FORFETTARIO invoices above €77.47: on top, included or disabled.
   stampDutyMode       StampDutyMode @default(CHARGED_TO_CUSTOMER)
+  /// VAT type of the "Rimborso imposta di bollo" line (excluded under art. 15 DPR 633/72). Required by CHARGED_TO_CUSTOMER.
+  stampDutyVatTypeId  Int?
   /// After a real (non dry-run) invoice is created, ask FIC to send it to SDI.
   sendToSdi           Boolean       @default(false)
-  /// When true every invoice is a FIC dry run: validated but never saved or sent.
+  /// When true every invoice is a dry run: validated with FIC's totals endpoint, nothing is created in FIC.
   dryRun              Boolean       @default(true)
 
   createdAt DateTime  @default(now())

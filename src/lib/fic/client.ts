@@ -193,6 +193,40 @@ export async function createIssuedDocument(
   };
 }
 
+export interface FicDocumentTotals {
+  amountNet: number | null;
+  amountGross: number | null;
+  amountDue: number | null;
+  stampDuty: number | null;
+  paymentsSum: number | null;
+}
+
+const numberOrNull = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
+/**
+ * Computes the totals of a document without creating it (`POST .../issued_documents/totals`).
+ * FIC has no dry run on creation: this is the only way to validate without consuming a number.
+ */
+export async function computeIssuedDocumentTotals(
+  token: string,
+  companyId: number,
+  body: FicIssuedDocumentRequest,
+): Promise<FicDocumentTotals> {
+  const result = await ficRequest<{ data?: Record<string, unknown> }>(`/c/${companyId}/issued_documents/totals`, {
+    method: "POST",
+    token,
+    body: { data: body.data },
+  });
+  const data = result.data ?? {};
+  return {
+    amountNet: numberOrNull(data.amount_net),
+    amountGross: numberOrNull(data.amount_gross),
+    amountDue: numberOrNull(data.amount_due),
+    stampDuty: numberOrNull(data.stamp_duty),
+    paymentsSum: numberOrNull(data.payments_sum),
+  };
+}
+
 /** Asks FIC to transmit an existing e-invoice to SDI. */
 export async function sendEInvoice(token: string, companyId: number, documentId: number): Promise<void> {
   await ficRequest(`/c/${companyId}/issued_documents/${documentId}/e_invoice/send`, {

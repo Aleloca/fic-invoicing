@@ -1,5 +1,6 @@
 /**
- * Builds the Fatture in Cloud `POST /c/{company_id}/issued_documents` request body.
+ * Builds the Fatture in Cloud `POST /c/{company_id}/issued_documents` request body
+ * (also accepted by `POST /c/{company_id}/issued_documents/totals`).
  * Pure function: no I/O, fully unit-tested.
  */
 import { getCountryNameForFIC } from "./countries";
@@ -18,6 +19,8 @@ export interface InvoiceConfig {
   statementOverrides: StatementOverrides | null;
   eiPaymentMethod: string;
   stampDutyMode: StampDutyMode;
+  /** FIC VAT type for the "Rimborso imposta di bollo" line (excluded, art. 15 DPR 633/72). Needed by CHARGED_TO_CUSTOMER. */
+  stampDutyVatTypeId: number | null;
 }
 
 /** Customer data as validated by the API schema (already normalised). */
@@ -45,14 +48,19 @@ export interface InvoiceInput {
   description: string;
   /** Document, due and paid date, `YYYY-MM-DD`. */
   date: string;
-  dryRun: boolean;
 }
 
 export interface BuiltPayload {
   body: FicIssuedDocumentRequest;
   stampDutyCents: number;
+  /** Sum of `payments_list`, EUR cents: must equal the amount due computed by FIC. */
+  totalPaidCents: number;
   statement: string | null;
 }
+
+/** Code and name of the invoice line that charges the stamp duty to the customer. */
+export const STAMP_DUTY_ITEM_CODE = "BOLLO";
+export const STAMP_DUTY_ITEM_NAME = "Rimborso imposta di bollo";
 
 /** Thrown when the tenant configuration or the input cannot produce a valid document. */
 export class PayloadError extends Error {
@@ -81,6 +89,23 @@ export interface FicEntity {
   certified_email?: string;
 }
 
+export interface FicIssuedDocumentItem {
+  product_id: null;
+  code: string;
+  name: string;
+  net_price?: number;
+  gross_price: number;
+  category: string;
+  qty: number;
+  vat: { id: number };
+  not_taxable: boolean;
+  description: string;
+}
+
+/**
+ * Body of `POST /c/{company_id}/issued_documents` and `.../issued_documents/totals`.
+ * There is no `options.dry_run`: FIC ignores it and creates the document anyway.
+ */
 export interface FicIssuedDocumentRequest {
   data: {
     type: "invoice";
@@ -91,18 +116,7 @@ export interface FicIssuedDocumentRequest {
     date: string;
     currency: { id: "EUR" };
     use_gross_prices: boolean;
-    items_list: Array<{
-      product_id: null;
-      code: string;
-      name: string;
-      net_price?: number;
-      gross_price: number;
-      category: string;
-      qty: number;
-      vat: { id: number };
-      not_taxable: boolean;
-      description: string;
-    }>;
+    items_list: FicIssuedDocumentItem[];
     payments_list: Array<{
       amount: number;
       due_date: string;
@@ -123,7 +137,6 @@ export interface FicIssuedDocumentRequest {
     stamp_duty: number;
     notes: string;
   };
-  options: { dry_run: boolean };
 }
 
 /** Converts integer cents to a 2-decimal euro number. */
@@ -202,18 +215,45 @@ export function buildIssuedDocumentPayload(config: InvoiceConfig, input: Invoice
   const entity = buildEntity(customer);
 
   const statement = resolveStatement(config.fiscalRegime, customer.category, config.statementOverrides);
-  // CHARGED_TO_CUSTOMER: line = amount, total paid = amount + stamp.
-  // INCLUDED: the stamp is part of the amount paid, line = amount - stamp, total paid = amount.
-  const { itemCents, stampDutyCents, totalPaidCents } = splitStampDuty(
+  // FIC does not add `stamp_duty` to the amount due of an e-invoice, it only declares it.
+  // CHARGED_TO_CUSTOMER: line = amount + a €2 "Rimborso imposta di bollo" line, total paid = amount + 2.
+  // INCLUDED: line = amount, the seller bears the declared €2, total paid = amount.
+  const { itemCents, stampDutyCents, stampLineCents, totalPaidCents } = splitStampDuty(
     config.fiscalRegime,
     config.stampDutyMode,
     input.amountCents,
   );
+  const stampDutyVatTypeId =
+    stampLineCents > 0
+      ? requireId(
+          config.stampDutyVatTypeId,
+          "a stamp duty VAT type (excluded under art. 15 DPR 633/72), required by stamp duty mode CHARGED_TO_CUSTOMER",
+        )
+      : null;
 
   // ORDINARIO + Italian customer: the amount is VAT-inclusive, let FIC split net and VAT.
   const grossPricing = config.fiscalRegime === "ORDINARIO" && isItalianCategory(customer.category);
-  const amount = centsToEuros(itemCents);
-  const totalPaid = centsToEuros(totalPaidCents);
+  const line = (code: string, name: string, cents: number, vatId: number, description: string): FicIssuedDocumentItem => {
+    const price = centsToEuros(cents);
+    return {
+      product_id: null,
+      code,
+      name,
+      ...(grossPricing ? {} : { net_price: price }),
+      gross_price: price,
+      category: "",
+      qty: 1,
+      vat: { id: vatId },
+      not_taxable: false,
+      description,
+    };
+  };
+  const items: FicIssuedDocumentItem[] = [
+    line(config.itemCode ?? "", input.description, itemCents, vatTypeId, statement ?? ""),
+  ];
+  if (stampDutyVatTypeId !== null) {
+    items.push(line(STAMP_DUTY_ITEM_CODE, STAMP_DUTY_ITEM_NAME, stampLineCents, stampDutyVatTypeId, ""));
+  }
 
   const body: FicIssuedDocumentRequest = {
     data: {
@@ -225,23 +265,10 @@ export function buildIssuedDocumentPayload(config: InvoiceConfig, input: Invoice
       date: input.date,
       currency: { id: "EUR" },
       use_gross_prices: grossPricing,
-      items_list: [
-        {
-          product_id: null,
-          code: config.itemCode ?? "",
-          name: input.description,
-          ...(grossPricing ? {} : { net_price: amount }),
-          gross_price: amount,
-          category: "",
-          qty: 1,
-          vat: { id: vatTypeId },
-          not_taxable: false,
-          description: statement ?? "",
-        },
-      ],
+      items_list: items,
       payments_list: [
         {
-          amount: totalPaid,
+          amount: centsToEuros(totalPaidCents),
           due_date: input.date,
           paid_date: input.date,
           status: "paid",
@@ -261,10 +288,9 @@ export function buildIssuedDocumentPayload(config: InvoiceConfig, input: Invoice
       stamp_duty: centsToEuros(stampDutyCents),
       notes: statement ?? "",
     },
-    options: { dry_run: input.dryRun },
   };
 
-  return { body, stampDutyCents, statement };
+  return { body, stampDutyCents, totalPaidCents, statement };
 }
 
 /** Today's date in Italy (Europe/Rome), `YYYY-MM-DD`. */

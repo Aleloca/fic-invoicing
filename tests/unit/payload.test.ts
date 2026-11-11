@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildIssuedDocumentPayload,
   PayloadError,
+  STAMP_DUTY_ITEM_CODE,
+  STAMP_DUTY_ITEM_NAME,
   todayInItaly,
   type CustomerData,
+  type FicIssuedDocumentRequest,
   type InvoiceConfig,
 } from "@/lib/fiscal/payload";
 import { STATEMENT_PRESETS } from "@/lib/fiscal/statements";
@@ -20,6 +23,7 @@ const forfettario: InvoiceConfig = {
   statementOverrides: null,
   eiPaymentMethod: "MP08",
   stampDutyMode: "CHARGED_TO_CUSTOMER",
+  stampDutyVatTypeId: 40,
 };
 
 const ordinario: InvoiceConfig = { ...forfettario, fiscalRegime: "ORDINARIO", vatTypeId: 11, nonTaxableVatTypeId: 12 };
@@ -69,11 +73,17 @@ const itBusiness: CustomerData = {
   email: "billing@example.com",
 };
 
-const build = (config: InvoiceConfig, customer: CustomerData, amountCents = 5000, dryRun = false) =>
-  buildIssuedDocumentPayload(config, { customer, amountCents, description: "Service", date: "2026-11-10", dryRun });
+const build = (config: InvoiceConfig, customer: CustomerData, amountCents = 5000) =>
+  buildIssuedDocumentPayload(config, { customer, amountCents, description: "Service", date: "2026-11-10" });
 
 const included: InvoiceConfig = { ...forfettario, stampDutyMode: "INCLUDED" };
 const disabled: InvoiceConfig = { ...forfettario, stampDutyMode: "DISABLED" };
+
+/** Sum of the lines (0% VAT) in cents: what FIC computes as amount due on an e-invoice (stamp NOT added). */
+const linesTotalCents = (body: FicIssuedDocumentRequest) =>
+  body.data.items_list.reduce((sum, item) => sum + Math.round((item.net_price ?? item.gross_price) * 100) * item.qty, 0);
+const paymentsCents = (body: FicIssuedDocumentRequest) =>
+  body.data.payments_list.reduce((sum, p) => sum + Math.round(p.amount * 100), 0);
 
 describe("stamp duty", () => {
   it("applies €2 only when forfettario, not disabled and strictly above €77.47", () => {
@@ -90,67 +100,97 @@ describe("stamp duty", () => {
     expect(splitStampDuty("FORFETTARIO", "CHARGED_TO_CUSTOMER", 10000)).toEqual({
       itemCents: 10000,
       stampDutyCents: 200,
+      stampLineCents: 200,
       totalPaidCents: 10200,
     });
     expect(splitStampDuty("FORFETTARIO", "INCLUDED", 10000)).toEqual({
-      itemCents: 9800,
+      itemCents: 10000,
       stampDutyCents: 200,
+      stampLineCents: 0,
       totalPaidCents: 10000,
     });
     expect(splitStampDuty("FORFETTARIO", "DISABLED", 10000)).toEqual({
       itemCents: 10000,
       stampDutyCents: 0,
+      stampLineCents: 0,
       totalPaidCents: 10000,
     });
-    expect(splitStampDuty("ORDINARIO", "INCLUDED", 10000)).toEqual({
+    expect(splitStampDuty("ORDINARIO", "CHARGED_TO_CUSTOMER", 10000)).toEqual({
       itemCents: 10000,
       stampDutyCents: 0,
+      stampLineCents: 0,
       totalPaidCents: 10000,
     });
   });
 
-  it("INCLUDED never leaves a non-positive line", () => {
-    for (const amount of [1, 199, 200, 201, 7747, 7748, 7947, 7948]) {
-      const { itemCents, totalPaidCents } = splitStampDuty("FORFETTARIO", "INCLUDED", amount);
-      expect(itemCents).toBeGreaterThan(0);
-      expect(totalPaidCents).toBe(amount);
+  it("payments always equal the amount due FIC computes (lines only, stamp not added on e-invoices)", () => {
+    for (const config of [forfettario, included, disabled, { ...ordinario, stampDutyMode: "CHARGED_TO_CUSTOMER" as const }]) {
+      for (const amount of [1, 5000, 7747, 7748, 7948, 10000, 123456]) {
+        const { body, totalPaidCents } = build(config, euPrivate, amount);
+        expect(paymentsCents(body)).toBe(linesTotalCents(body));
+        expect(totalPaidCents).toBe(paymentsCents(body));
+      }
     }
   });
 
   describe("CHARGED_TO_CUSTOMER", () => {
-    it("above the threshold: added to the document and to the amount paid", () => {
-      const { body, stampDutyCents } = build(forfettario, itPrivate, 10000);
+    it("above the threshold: €2 bollo line with the excluded VAT type, declared stamp, payment = amount + €2", () => {
+      const { body, stampDutyCents, totalPaidCents } = build(forfettario, itPrivate, 10000);
       expect(stampDutyCents).toBe(200);
+      expect(totalPaidCents).toBe(10200);
       expect(body.data.stamp_duty).toBe(2);
-      expect(body.data.items_list[0].net_price).toBe(100);
-      expect(body.data.items_list[0].gross_price).toBe(100);
+      expect(body.data.items_list).toHaveLength(2);
+      expect(body.data.items_list[0]).toMatchObject({ code: "SKU-1", net_price: 100, gross_price: 100, vat: { id: 10 } });
+      expect(body.data.items_list[1]).toEqual({
+        product_id: null,
+        code: STAMP_DUTY_ITEM_CODE,
+        name: STAMP_DUTY_ITEM_NAME,
+        net_price: 2,
+        gross_price: 2,
+        category: "",
+        qty: 1,
+        vat: { id: 40 },
+        not_taxable: false,
+        description: "",
+      });
+      expect(body.data.payments_list).toHaveLength(1);
       expect(body.data.payments_list[0].amount).toBe(102);
     });
 
-    it("at the threshold: no stamp duty", () => {
+    it("at the threshold: no stamp duty, no bollo line", () => {
       const { body, stampDutyCents } = build(forfettario, itPrivate, 7747);
       expect(stampDutyCents).toBe(0);
       expect(body.data.stamp_duty).toBe(0);
+      expect(body.data.items_list).toHaveLength(1);
       expect(body.data.items_list[0].net_price).toBe(77.47);
       expect(body.data.payments_list[0].amount).toBe(77.47);
+    });
+
+    it("needs the stamp duty VAT type only when the stamp applies", () => {
+      const unset = { ...forfettario, stampDutyVatTypeId: null };
+      try {
+        build(unset, itPrivate, 10000);
+        expect.unreachable();
+      } catch (error) {
+        expect(error).toBeInstanceOf(PayloadError);
+        expect((error as PayloadError).kind).toBe("config");
+        expect((error as PayloadError).message).toMatch(/stamp duty VAT type/);
+      }
+      expect(build(unset, itPrivate, 7747).body.data.items_list).toHaveLength(1);
+      expect(build({ ...unset, stampDutyMode: "INCLUDED" }, itPrivate, 10000).stampDutyCents).toBe(200);
     });
   });
 
   describe("INCLUDED", () => {
-    it("above the threshold: €2 carved out of the line, amount paid unchanged", () => {
-      const { body, stampDutyCents } = build(included, itPrivate, 10000);
+    it("above the threshold: line = amount, stamp declared, payment = amount", () => {
+      const { body, stampDutyCents, totalPaidCents } = build(included, itPrivate, 10000);
       expect(stampDutyCents).toBe(200);
+      expect(totalPaidCents).toBe(10000);
       expect(body.data.stamp_duty).toBe(2);
-      expect(body.data.items_list[0].net_price).toBe(98);
-      expect(body.data.items_list[0].gross_price).toBe(98);
+      expect(body.data.items_list).toHaveLength(1);
+      expect(body.data.items_list[0].net_price).toBe(100);
+      expect(body.data.items_list[0].gross_price).toBe(100);
       expect(body.data.payments_list[0].amount).toBe(100);
-    });
-
-    it("just above the threshold: stamp still applied, line below €77.47", () => {
-      const { body, stampDutyCents } = build(included, itPrivate, 7900);
-      expect(stampDutyCents).toBe(200);
-      expect(body.data.items_list[0].net_price).toBe(77);
-      expect(body.data.payments_list[0].amount).toBe(79);
     });
 
     it("at or below the threshold: no stamp duty, line = amount paid", () => {
@@ -176,6 +216,7 @@ describe("stamp duty", () => {
       const { body, stampDutyCents } = build(disabled, itPrivate, 10000);
       expect(stampDutyCents).toBe(0);
       expect(body.data.stamp_duty).toBe(0);
+      expect(body.data.items_list).toHaveLength(1);
       expect(body.data.items_list[0].net_price).toBe(100);
       expect(body.data.payments_list[0].amount).toBe(100);
     });
@@ -229,7 +270,7 @@ describe("FORFETTARIO payloads", () => {
       country: "Italia",
       country_iso: "IT",
     });
-    expect(body.options).toEqual({ dry_run: false });
+    expect("options" in body).toBe(false);
   });
 
   it("EU_PRIVATE uses the 7-ter EU statement and the Italian FIC country name", () => {
@@ -266,11 +307,10 @@ describe("FORFETTARIO payloads", () => {
     expect(body.data.entity.certified_email).toBe("example@pec.it");
   });
 
-  it("omits numeration when not configured and passes dry run through", () => {
-    const { body } = build({ ...forfettario, numeration: null, itemCode: null }, itPrivate, 5000, true);
+  it("omits numeration when not configured", () => {
+    const { body } = build({ ...forfettario, numeration: null, itemCode: null }, itPrivate, 5000);
     expect("numeration" in body.data).toBe(false);
     expect(body.data.items_list[0].code).toBe("");
-    expect(body.options.dry_run).toBe(true);
   });
 
   it("tenant overrides win; empty override prints nothing", () => {

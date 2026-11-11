@@ -138,6 +138,7 @@ const configSchema = z.object({
   itemCode: optionalText(50),
   fiscalRegime: z.enum(FISCAL_REGIMES),
   stampDutyMode: z.enum(STAMP_DUTY_MODES),
+  stampDutyVatTypeId: optionalId,
   eiPaymentMethod: z
     .string()
     .trim()
@@ -157,6 +158,7 @@ export async function updateTenantConfigAction(tenantId: string, formData: FormD
     itemCode: field("itemCode"),
     fiscalRegime: field("fiscalRegime"),
     stampDutyMode: field("stampDutyMode"),
+    stampDutyVatTypeId: field("stampDutyVatTypeId"),
     eiPaymentMethod: field("eiPaymentMethod"),
   });
   if (!parsed.success) {

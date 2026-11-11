@@ -30,6 +30,14 @@ const body = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+interface SentDocument {
+  data: {
+    stamp_duty: number;
+    items_list: { code: string; name: string; net_price: number; vat: { id: number } }[];
+    payments_list: { amount: number }[];
+  };
+}
+
 const post = (apiKey: string | undefined, payload: unknown) =>
   createInvoice(apiRequest("/api/v1/invoices", { method: "POST", apiKey, body: payload }));
 
@@ -102,7 +110,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
   });
 
   describe("create", () => {
-    it("issues an invoice: 201, stamp duty, number, FIC payload, payload purged", async () => {
+    it("issues an invoice: totals pre-check, then create: 201, stamp duty line, number, payload purged", async () => {
       const fic = installFicMock();
       const { tenant, apiKey } = await createTenant();
       const res = await post(apiKey, body());
@@ -119,31 +127,87 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
         externalRef: "ext-1",
       });
 
+      const ficPaths = fic.state.calls.filter((c) => c.url.hostname === "fic.test").map((c) => c.url.pathname);
+      expect(ficPaths).toEqual([
+        `/c/${tenant.ficCompanyId}/issued_documents/totals`,
+        `/c/${tenant.ficCompanyId}/issued_documents`,
+      ]);
+      const [totalsCall] = fic.callsTo(/\/issued_documents\/totals$/);
       const [call] = fic.callsTo(new RegExp(`^/c/${tenant.ficCompanyId}/issued_documents$`));
       expect(call.authorization).toBe("Bearer access-0");
-      expect((call.body as { data: { stamp_duty: number } }).data.stamp_duty).toBe(2);
+      expect(totalsCall.body).toEqual({ data: (call.body as SentDocument).data });
+      expect(Object.keys(call.body as object)).toEqual(["data"]);
+
+      // CHARGED_TO_CUSTOMER (default): €100 line + €2 bollo line, stamp declared, paid €102.
+      const data = (call.body as SentDocument).data;
+      expect(data.stamp_duty).toBe(2);
+      expect(data.items_list.map((i) => [i.code, i.net_price, i.vat.id])).toEqual([
+        ["ITEM", 100, 10],
+        ["BOLLO", 2, 40],
+      ]);
+      expect(data.payments_list[0].amount).toBe(102);
 
       const row = await prisma.invoice.findUniqueOrThrow({ where: { id: json.id } });
       expect(row.requestPayload).toBeNull();
       expect(row.attempts).toBe(1);
     });
 
-    it("INCLUDED stamp duty: line = amount - €2, payment = amount, response keeps the caller's amount", async () => {
+    it("INCLUDED stamp duty: line = amount, stamp declared, payment = amount, response keeps the caller's amount", async () => {
       const fic = installFicMock();
-      const { tenant, apiKey } = await createTenant({ stampDutyMode: "INCLUDED" });
+      const { tenant, apiKey } = await createTenant({ stampDutyMode: "INCLUDED", stampDutyVatTypeId: null });
       const res = await post(apiKey, body());
       expect(res.status).toBe(201);
-      expect(await res.json()).toMatchObject({ amountCents: 10000, stampDutyCents: 200 });
+      expect(await res.json()).toMatchObject({ status: "ISSUED", amountCents: 10000, stampDutyCents: 200 });
 
       const [call] = fic.callsTo(new RegExp(`^/c/${tenant.ficCompanyId}/issued_documents$`));
-      const data = (
-        call.body as {
-          data: { stamp_duty: number; items_list: { net_price: number }[]; payments_list: { amount: number }[] };
-        }
-      ).data;
+      const data = (call.body as SentDocument).data;
       expect(data.stamp_duty).toBe(2);
-      expect(data.items_list[0].net_price).toBe(98);
+      expect(data.items_list).toHaveLength(1);
+      expect(data.items_list[0].net_price).toBe(100);
       expect(data.payments_list[0].amount).toBe(100);
+    });
+
+    it("CHARGED_TO_CUSTOMER without a stamp duty VAT type: 409 tenant_not_configured when the stamp applies", async () => {
+      const fic = installFicMock();
+      const { apiKey } = await createTenant({ stampDutyVatTypeId: null });
+      const res = await post(apiKey, body());
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.error.code).toBe("tenant_not_configured");
+      expect(json.error.message).toMatch(/stamp duty VAT type/);
+      expect(await prisma.invoice.count()).toBe(0);
+      expect(fic.callsTo(/issued_documents/)).toHaveLength(0);
+
+      // Below the threshold no stamp is due: the invoice is issued.
+      const small = await post(apiKey, body({ idempotencyKey: "order-small", amountCents: 5000 }));
+      expect(small.status).toBe(201);
+      expect(await small.json()).toMatchObject({ status: "ISSUED", stampDutyCents: 0 });
+    });
+
+    it("totals mismatch: FAILED with both amounts, nothing created in FIC", async () => {
+      const fic = installFicMock();
+      fic.state.amountDueOverride = 100;
+      const { apiKey } = await createTenant();
+      const res = await post(apiKey, body());
+      expect(res.status).toBe(502);
+      const json = await res.json();
+      expect(json).toMatchObject({ status: "FAILED", ficDocumentId: null, number: null, error: { code: "fic_error" } });
+      expect(json.errorMessage).toContain("€102.00");
+      expect(json.errorMessage).toContain("€100.00");
+      expect(fic.callsTo(/\/issued_documents\/totals$/)).toHaveLength(1);
+      expect(fic.callsTo(/issued_documents$/)).toHaveLength(0);
+      expect(fic.state.nextNumber).toBe(1);
+    });
+
+    it("totals rejected by FIC: FAILED with the FIC message, nothing created", async () => {
+      const fic = installFicMock({ failTotalsWith: 422 });
+      const { apiKey } = await createTenant();
+      const res = await post(apiKey, body());
+      expect(res.status).toBe(502);
+      const json = await res.json();
+      expect(json.status).toBe("FAILED");
+      expect(json.errorMessage).toContain("FIC HTTP 422: Totals failed");
+      expect(fic.callsTo(/issued_documents$/)).toHaveLength(0);
     });
 
     it("is idempotent per tenant: same key returns the existing invoice with 200", async () => {
@@ -205,20 +269,40 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
       expect(notFailed.status).toBe(409);
     });
 
-    it("caller can force dry run; cannot disable the tenant's dry run", async () => {
+    it("dry run validates with the totals endpoint and never creates a document; caller can force it, not disable it", async () => {
       const fic = installFicMock();
-      const live = await createTenant({ dryRun: false });
-      const forced = await (await post(live.apiKey, body({ dryRun: true }))).json();
-      expect(forced).toMatchObject({ status: "ISSUED", dryRun: true, ficDocumentId: null });
+      const live = await createTenant({ dryRun: false, sendToSdi: true });
+      const forcedRes = await post(live.apiKey, body({ dryRun: true }));
+      expect(forcedRes.status).toBe(201);
+      expect(await forcedRes.json()).toMatchObject({
+        status: "ISSUED",
+        dryRun: true,
+        ficDocumentId: null,
+        number: null,
+        stampDutyCents: 200,
+        sdi: { sentAt: null, error: null },
+      });
 
       const dry = await createTenant({ dryRun: true });
       const notOverridden = await (await post(dry.apiKey, body({ dryRun: false }))).json();
-      expect(notOverridden.dryRun).toBe(true);
-      const calls = fic.callsTo(/issued_documents$/);
-      expect(calls.every((c) => (c.body as { options: { dry_run: boolean } }).options.dry_run)).toBe(true);
+      expect(notOverridden).toMatchObject({ status: "ISSUED", dryRun: true, ficDocumentId: null, number: null });
+
+      expect(fic.callsTo(/\/issued_documents\/totals$/)).toHaveLength(2);
+      expect(fic.callsTo(/issued_documents$/)).toHaveLength(0);
+      expect(fic.callsTo(/\/e_invoice\/send$/)).toHaveLength(0);
 
       const pdf = await getPdf(apiRequest("/x", { apiKey: dry.apiKey }), params({ id: notOverridden.id }));
       expect(pdf.status).toBe(409);
+    });
+
+    it("dry run with a totals mismatch is FAILED", async () => {
+      const fic = installFicMock();
+      fic.state.amountDueOverride = 50;
+      const { apiKey } = await createTenant({ dryRun: true });
+      const json = await (await post(apiKey, body())).json();
+      expect(json).toMatchObject({ status: "FAILED", dryRun: true });
+      expect(json.errorMessage).toMatch(/does not match the amount due/);
+      expect(fic.callsTo(/issued_documents$/)).toHaveLength(0);
     });
 
     it("validation errors: 422 with details; invalid JSON: 400", async () => {

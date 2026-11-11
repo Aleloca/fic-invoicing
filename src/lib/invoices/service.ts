@@ -4,10 +4,17 @@
 import { Prisma, type Invoice, type Tenant } from "@prisma/client";
 import { env } from "../env";
 import { ApiError } from "../errors";
-import { createIssuedDocument, FicHttpError, sendEInvoice } from "../fic/client";
+import {
+  computeIssuedDocumentTotals,
+  createIssuedDocument,
+  FicHttpError,
+  sendEInvoice,
+  type FicDocumentTotals,
+} from "../fic/client";
 import { getFicAccess } from "../fic/tokens";
 import {
   buildIssuedDocumentPayload,
+  centsToEuros,
   PayloadError,
   todayInItaly,
   type BuiltPayload,
@@ -42,6 +49,7 @@ export function tenantInvoiceConfig(tenant: Tenant): InvoiceConfig {
     statementOverrides: parseStatementOverrides(tenant.fiscalStatements),
     eiPaymentMethod: tenant.eiPaymentMethod,
     stampDutyMode: tenant.stampDutyMode,
+    stampDutyVatTypeId: tenant.stampDutyVatTypeId,
   };
 }
 
@@ -54,14 +62,13 @@ function assertTenantReady(tenant: Tenant): void {
   }
 }
 
-function buildOrThrow(tenant: Tenant, payload: StoredRequestPayload, invoice: Pick<Invoice, "amountCents" | "description">, dryRun: boolean): BuiltPayload {
+function buildOrThrow(tenant: Tenant, payload: StoredRequestPayload, invoice: Pick<Invoice, "amountCents" | "description">): BuiltPayload {
   try {
     return buildIssuedDocumentPayload(tenantInvoiceConfig(tenant), {
       customer: payload.customer,
       amountCents: invoice.amountCents,
       description: invoice.description,
       date: payload.date,
-      dryRun,
     });
   } catch (error) {
     if (error instanceof PayloadError) {
@@ -77,8 +84,39 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
+/** The FIC totals pre-check rejected the document: nothing was created in FIC. */
+export class TotalsCheckError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TotalsCheckError";
+  }
+}
+
+/** Tolerance when comparing euro amounts returned by FIC. */
+const EURO_TOLERANCE = 0.005;
+
+const formatEuros = (value: number) => `€${value.toFixed(2)}`;
+
+/**
+ * FIC refuses to create a document whose payments do not add up to the amount due
+ * ("Il totale dei pagamenti non corrisponde al totale da pagare"). Check it on the
+ * totals computed by FIC before creating anything.
+ */
+export function assertPaymentsMatchTotals(totals: FicDocumentTotals, built: BuiltPayload): void {
+  if (totals.amountDue === null) {
+    throw new TotalsCheckError("Fatture in Cloud totals check returned no amount_due: nothing was created in Fatture in Cloud");
+  }
+  const paid = totals.paymentsSum ?? centsToEuros(built.totalPaidCents);
+  if (Math.abs(paid - totals.amountDue) > EURO_TOLERANCE) {
+    throw new TotalsCheckError(
+      `Payments total ${formatEuros(paid)} does not match the amount due ${formatEuros(totals.amountDue)} ` +
+        "computed by Fatture in Cloud: nothing was created in Fatture in Cloud",
+    );
+  }
+}
+
 function errorMessageOf(error: unknown): string {
-  if (error instanceof FicHttpError || error instanceof ApiError) return error.message;
+  if (error instanceof FicHttpError || error instanceof ApiError || error instanceof TotalsCheckError) return error.message;
   if (error instanceof Error) return `Unexpected error: ${error.message}`;
   return "Unexpected error";
 }
@@ -99,7 +137,7 @@ export async function createInvoice(tenant: Tenant, input: CreateInvoiceInput): 
   const dryRun = tenant.dryRun || input.dryRun === true;
   const stored: StoredRequestPayload = { v: 1, customer: input.customer, date: input.paidAt ?? todayInItaly() };
   // Fail fast on configuration / input problems, before writing anything.
-  const built = buildOrThrow(tenant, stored, input, dryRun);
+  const built = buildOrThrow(tenant, stored, input);
 
   let invoice: Invoice;
   try {
@@ -136,15 +174,39 @@ export async function createInvoice(tenant: Tenant, input: CreateInvoiceInput): 
 /**
  * Calls FIC for a PENDING invoice and records the outcome (ISSUED or FAILED).
  * Never throws for FIC / token problems: they end up in `errorMessage`.
+ *
+ * Every attempt first asks FIC to compute the totals (nothing is created, no number
+ * is consumed). A dry run stops there: FIC has no real dry run on creation.
  */
 async function issue(tenant: Tenant, invoice: Invoice, stored: StoredRequestPayload): Promise<Invoice> {
   const dryRun = invoice.dryRun || tenant.dryRun;
   await prisma.invoice.update({ where: { id: invoice.id }, data: { attempts: { increment: 1 }, dryRun } });
+  // The customer data is no longer needed once the outcome is final.
+  const purge = env.purgePayloadOnSuccess() ? { requestPayload: Prisma.DbNull } : {};
 
   try {
-    const built = buildOrThrow(tenant, stored, invoice, dryRun);
+    const built = buildOrThrow(tenant, stored, invoice);
     const access = await getFicAccess(tenant.id);
     if (!access.companyId) throw new ApiError(409, "fic_not_connected", "No Fatture in Cloud company selected");
+
+    const totals = await computeIssuedDocumentTotals(access.accessToken, access.companyId, built.body);
+    assertPaymentsMatchTotals(totals, built);
+
+    if (dryRun) {
+      return await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: "ISSUED",
+          ficDocumentId: null,
+          ficNumber: null,
+          stampDutyCents: built.stampDutyCents,
+          errorMessage: null,
+          sdiSentAt: null,
+          sdiError: null,
+          ...purge,
+        },
+      });
+    }
 
     const document = await createIssuedDocument(access.accessToken, access.companyId, built.body);
     const documentId = document.id && document.id > 0 ? document.id : null;
@@ -153,7 +215,7 @@ async function issue(tenant: Tenant, invoice: Invoice, stored: StoredRequestPayl
 
     let sdiSentAt: Date | null = null;
     let sdiError: string | null = null;
-    if (!dryRun && tenant.sendToSdi && documentId) {
+    if (tenant.sendToSdi && documentId) {
       try {
         await sendEInvoice(access.accessToken, access.companyId, documentId);
         sdiSentAt = new Date();
@@ -172,12 +234,11 @@ async function issue(tenant: Tenant, invoice: Invoice, stored: StoredRequestPayl
         errorMessage: null,
         sdiSentAt,
         sdiError,
-        // The customer data is no longer needed once the document exists in FIC.
-        ...(env.purgePayloadOnSuccess() ? { requestPayload: Prisma.DbNull } : {}),
+        ...purge,
       },
     });
   } catch (error) {
-    if (!(error instanceof FicHttpError || error instanceof ApiError)) {
+    if (!(error instanceof FicHttpError || error instanceof ApiError || error instanceof TotalsCheckError)) {
       console.error("[fic-invoicing] unexpected error while issuing invoice", invoice.id, error);
     }
     return prisma.invoice.update({

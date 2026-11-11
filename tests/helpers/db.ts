@@ -34,6 +34,7 @@ export async function createTenant(
       vatTypeId: 10,
       paymentAccountId: 20,
       paymentMethodId: 30,
+      stampDutyVatTypeId: 40,
       numeration: "/T",
       itemCode: "ITEM",
       dryRun: false,

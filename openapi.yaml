@@ -84,7 +84,9 @@ paths:
                     email: billing@example.com
       responses:
         "201":
-          description: Invoice issued (or validated, for dry runs)
+          description: |
+            Invoice issued. For dry runs: validated with Fatture in Cloud's totals endpoint, nothing created
+            (`ficDocumentId` and `number` are null).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Invoice" }
@@ -108,7 +110,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502":
-          description: Fatture in Cloud rejected the request. The invoice is FAILED.
+          description: |
+            Fatture in Cloud rejected the request, or the payments do not match the amount due computed by
+            Fatture in Cloud's totals pre-check (nothing created). The invoice is FAILED.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/FailedInvoice" }
@@ -247,16 +251,19 @@ components:
           description: |
             EUR cents for the service. VAT-inclusive for ORDINARIO tenants with Italian customers.
             Stamp duty (FORFETTARIO, amount > 7747) depends on the tenant's stamp duty mode:
-            `CHARGED_TO_CUSTOMER` adds it on top (total paid = amountCents + stampDutyCents),
-            `INCLUDED` takes it out of this amount (invoice line = amountCents - stampDutyCents,
-            total paid = amountCents), `DISABLED` never applies it.
+            `CHARGED_TO_CUSTOMER` adds a separate €2 "Rimborso imposta di bollo" line
+            (total paid = amountCents + stampDutyCents; needs the tenant's stamp duty VAT type, otherwise 409
+            tenant_not_configured), `INCLUDED` is borne by the seller (invoice line = total paid = amountCents,
+            the stamp is only declared), `DISABLED` never applies it.
         description: { type: string, maxLength: 1000 }
         paidAt:
           type: string
           description: Payment / document date (YYYY-MM-DD or ISO date-time). Defaults to today (Europe/Rome). Cannot be in the future.
         dryRun:
           type: boolean
-          description: true forces a dry run. false cannot disable a tenant-level dry run.
+          description: |
+            true forces a dry run: the invoice is validated with Fatture in Cloud's totals endpoint and
+            nothing is created in Fatture in Cloud. false cannot disable a tenant-level dry run.
 
     Invoice:
       type: object
@@ -266,10 +273,10 @@ components:
         externalRef: { type: [string, "null"] }
         status: { type: string, enum: [PENDING, ISSUED, FAILED] }
         customerCategory: { $ref: "#/components/schemas/CustomerCategory" }
-        number: { type: [string, "null"], example: 12/A }
+        number: { type: [string, "null"], example: 12/A, description: "null for dry runs" }
         ficDocumentId: { type: [integer, "null"], description: "null for dry runs" }
         amountCents: { type: integer, description: The amount sent by the caller, unchanged in every stamp duty mode. }
-        stampDutyCents: { type: integer, description: "Stamp duty on the invoice (0 or 200). Added on top or included in amountCents depending on the tenant's mode." }
+        stampDutyCents: { type: integer, description: "Stamp duty declared on the invoice (0 or 200). Charged to the customer as an extra line or borne by the seller, depending on the tenant's mode." }
         dryRun: { type: boolean }
         errorMessage: { type: [string, "null"] }
         attempts: { type: integer }

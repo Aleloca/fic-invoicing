@@ -8,14 +8,6 @@ export const STAMP_DUTY_THRESHOLD_CENTS = 7747;
 /**
  * Stamp duty for an invoice: €2 when the tenant is FORFETTARIO, the tenant mode
  * is not `DISABLED` and the caller's amount is strictly greater than €77.47.
- *
- * The threshold is always compared with the caller's `amountCents`, exactly as
- * before the modes existed. For `INCLUDED` this means: an amount that would be a
- * taxable line above €77.47 without the stamp gets the stamp. Between €77.48 and
- * €79.47 the line, once the €2 is carved out, ends up at or below €77.47 while the
- * stamp is still applied. This is deliberate: an unnecessary €2 stamp only costs
- * €2, a missing one that was due is a tax violation. It also guarantees that the
- * line keeps a positive amount (> €75.47) whenever the €2 is subtracted.
  */
 export function computeStampDutyCents(regime: FiscalRegime, mode: StampDutyMode, amountCents: number): number {
   if (regime !== "FORFETTARIO" || mode === "DISABLED") return 0;
@@ -23,29 +15,36 @@ export function computeStampDutyCents(regime: FiscalRegime, mode: StampDutyMode,
 }
 
 export interface StampDutySplit {
-  /** Price of the invoice line (taxable part), EUR cents. */
+  /** Price of the main invoice line, EUR cents. Always the caller's amount. */
   itemCents: number;
-  /** Stamp duty printed on the invoice, EUR cents (0 or 200). */
+  /** Stamp duty declared on the e-invoice (`stamp_duty`), EUR cents (0 or 200). */
   stampDutyCents: number;
+  /** Price of the separate "Rimborso imposta di bollo" line, EUR cents (0 or 200). */
+  stampLineCents: number;
   /** Invoice total and recorded payment, EUR cents. */
   totalPaidCents: number;
 }
 
 /**
- * Splits the caller's amount into invoice line, stamp duty and total paid.
+ * Splits the caller's amount into invoice lines, declared stamp duty and total paid.
  *
- * - `CHARGED_TO_CUSTOMER`: line = amount, stamp on top, total = amount + stamp.
- * - `INCLUDED`: the customer paid `amount` and the stamp is part of it:
- *   line = amount − stamp, total = amount.
+ * On e-invoices Fatture in Cloud does NOT add `stamp_duty` to the amount due: the
+ * field only declares the (virtual) stamp, which the seller pays to the tax
+ * authority. To charge the €2 to the customer it must be a separate invoice line.
+ *
+ * - `CHARGED_TO_CUSTOMER`: line = amount, plus a €2 "Rimborso imposta di bollo"
+ *   line, total = amount + €2.
+ * - `INCLUDED`: the seller bears the stamp (it is part of the fixed price the
+ *   customer paid): line = total = amount, the €2 is only declared.
  * - `DISABLED`: no stamp, line = total = amount.
  */
 export function splitStampDuty(regime: FiscalRegime, mode: StampDutyMode, amountCents: number): StampDutySplit {
   const stampDutyCents = computeStampDutyCents(regime, mode, amountCents);
-  if (mode === "INCLUDED") {
-    const itemCents = amountCents - stampDutyCents;
-    // Unreachable with the threshold above (stamp only when amount > 7747), kept as a guard.
-    if (itemCents <= 0) throw new Error("Stamp duty would leave a non-positive invoice line");
-    return { itemCents, stampDutyCents, totalPaidCents: amountCents };
-  }
-  return { itemCents: amountCents, stampDutyCents, totalPaidCents: amountCents + stampDutyCents };
+  const stampLineCents = mode === "CHARGED_TO_CUSTOMER" ? stampDutyCents : 0;
+  return {
+    itemCents: amountCents,
+    stampDutyCents,
+    stampLineCents,
+    totalPaidCents: amountCents + stampLineCents,
+  };
 }

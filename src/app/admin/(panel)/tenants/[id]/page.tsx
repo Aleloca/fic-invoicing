@@ -140,6 +140,14 @@ export default async function TenantPage({
       <section className="card">
         <h2>Invoice configuration</h2>
         {lookups.error && <p className="notice error small">Could not load FIC lookups: {lookups.error}</p>}
+        {tenant.fiscalRegime === "FORFETTARIO" &&
+          tenant.stampDutyMode === "CHARGED_TO_CUSTOMER" &&
+          tenant.stampDutyVatTypeId === null && (
+            <p className="notice error small">
+              Stamp duty is charged to the customer but no stamp duty VAT type is set: invoices above €77.47 are
+              refused (tenant_not_configured) until you pick one.
+            </p>
+          )}
         {!lookups.vatTypes && !lookups.error && (
           <p className="muted small">Connect a company to pick these values from dropdowns.</p>
         )}
@@ -211,23 +219,31 @@ export default async function TenantPage({
               <label htmlFor="stampDutyMode">
                 Stamp duty (bollo)
                 <span className="hint">
-                  €2 on forfettario invoices above €77.47. <em>Charged to customer</em>: added on top, the customer
-                  pays amount + €2. <em>Included</em>: the €2 comes out of the amount the customer already paid (use
-                  it with fixed checkout prices). <em>Disabled</em>: never applied.
+                  €2 on forfettario invoices above €77.47. <em>Charged to customer</em>: a separate €2 &ldquo;Rimborso
+                  imposta di bollo&rdquo; line, the customer pays amount + €2 (needs the stamp duty VAT type).{" "}
+                  <em>Included</em>: you bear the €2 and pay it to the tax authority, the customer pays exactly the
+                  amount (use it with fixed checkout prices). <em>Disabled</em>: never applied.
                 </span>
               </label>
               <select id="stampDutyMode" name="stampDutyMode" defaultValue={tenant.stampDutyMode}>
-                <option value="CHARGED_TO_CUSTOMER">Charged to customer (amount + €2)</option>
-                <option value="INCLUDED">Included in the amount (line = amount − €2)</option>
+                <option value="CHARGED_TO_CUSTOMER">Charged to customer (amount + €2 line)</option>
+                <option value="INCLUDED">Included, borne by you (customer pays amount)</option>
                 <option value="DISABLED">Disabled</option>
               </select>
             </div>
+            <IdField
+              name="stampDutyVatTypeId"
+              label="Stamp duty VAT type"
+              hint="Charged to customer only: VAT type of the €2 bollo line, excluded under art. 15 DPR 633/72."
+              value={tenant.stampDutyVatTypeId}
+              options={lookups.vatTypes}
+            />
           </div>
 
           <h2 style={{ marginTop: 24 }}>Options</h2>
           <label className="inline">
-            <input type="checkbox" name="dryRun" defaultChecked={tenant.dryRun} /> Dry run (FIC validates invoices
-            but does not save them)
+            <input type="checkbox" name="dryRun" defaultChecked={tenant.dryRun} /> Dry run: validates with FIC&apos;s
+            totals endpoint, nothing is created in FIC
           </label>
           <label className="inline">
             <input type="checkbox" name="sendToSdi" defaultChecked={tenant.sendToSdi} /> Send e-invoices to SDI
