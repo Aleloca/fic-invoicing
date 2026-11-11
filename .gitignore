@@ -10,3 +10,6 @@ next-env.d.ts
 !.env.example
 .DS_Store
 npm-debug.log*
+
+# Claude Code personal settings
+.claude/settings.local.json
