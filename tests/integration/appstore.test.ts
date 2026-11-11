@@ -1,6 +1,6 @@
 import { generateKeyPairSync, verify } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkAccount, suggestStartPeriod } from "@/lib/appstore/check";
+import { checkAccount, discoverProducts, suggestStartPeriod } from "@/lib/appstore/check";
 import { groupReport } from "@/lib/appstore/groups";
 import { APPLE_DISTRIBUTION_INTERNATIONAL } from "@/lib/appstore/payload";
 import type { ReportLine } from "@/lib/appstore/report";
@@ -123,6 +123,18 @@ describe.skipIf(!hasTestDb)("Apple accounts and invoices to Apple (integration)"
     expect((await checkAccount(account.id, NOW)).found).toEqual([]);
     expect(await prisma.appStoreReport.count()).toBe(2);
     expect(await prisma.appleProduct.count()).toBe(2);
+  });
+
+  it("loads the products of past reports without creating reports", async () => {
+    installFicMock({ appleReports: REPORTS });
+    const { account } = await setup("2027-01");
+    expect(await discoverProducts(account.id, NOW)).toBe(2);
+    expect((await prisma.appleProduct.findMany({ orderBy: { appleId: "asc" } })).map((p) => p.title)).toEqual([
+      "ZenTap Pro Unlock",
+      "MoonLog Premium",
+    ]);
+    expect(await prisma.appStoreReport.count()).toBe(0);
+    expect(await discoverProducts(account.id, NOW)).toBe(0);
   });
 
   it("groups a report by project once products are assigned", async () => {

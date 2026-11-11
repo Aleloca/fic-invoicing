@@ -23,6 +23,7 @@ import { loadLookups } from "@/lib/projects/lookups";
 import {
   assignAppleProductsAction,
   checkAppleAccountAction,
+  discoverAppleProductsAction,
   issueAppleInvoiceAction,
   removeAppleAccountAction,
   setAppleReportDismissedAction,
@@ -272,11 +273,18 @@ export default async function AppleAccountPage({
       <section className="section" id="products">
         <SectionHead title="Products">
           What the reports sell, and the project each belongs to. For in-app purchases Apple names the purchase, not the
-          app. Assigned once, remembered.
+          app. Assigned once, remembered: assign them before the next report.
         </SectionHead>
         <div className="section-body">
+          <form action={discoverAppleProductsAction.bind(null, account.id)}>
+            <button type="submit" className="btn secondary small">
+              Load products from past reports
+            </button>
+          </form>
           {products.length === 0 ? (
-            <p className="hint">Products appear with the first report.</p>
+            <p className="hint">
+              No product yet. Load them from the reports of the last two years, or they appear with the next report.
+            </p>
           ) : (
             <form action={assignAppleProductsAction.bind(null, account.id)}>
               {unassigned.length > 0 && (

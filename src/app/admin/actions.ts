@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminSession, destroyAdminSession, requireAdmin } from "@/lib/admin-session";
 import { generateApiKey } from "@/lib/api-key";
-import { checkAccount, suggestStartPeriod } from "@/lib/appstore/check";
+import { checkAccount, discoverProducts, suggestStartPeriod } from "@/lib/appstore/check";
 import { decrypt, encrypt, safeEqual } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { ApiError } from "@/lib/errors";
@@ -422,6 +422,10 @@ export async function saveAppleAccountAction(accountId: string | null, formData:
     appleBack(existing.id, "notice", "apple_saved");
   }
   const created = await prisma.appleAccount.create({ data });
+  // Products sold so far, so they can be assigned to projects before the first report.
+  await discoverProducts(created.id).catch((error) =>
+    console.warn("[fic-invoicing] could not read past Apple reports", error instanceof Error ? error.message : error),
+  );
   appleBack(created.id, "notice", "apple_connected");
 }
 
@@ -434,6 +438,18 @@ export async function checkAppleAccountAction(accountId: string): Promise<void> 
     appleBack(accountId, "error", `Check failed: ${error instanceof Error ? error.message : "unknown error"}`);
   }
   appleBack(accountId, "notice", found.length > 0 ? "apple_found" : "apple_nothing_new");
+}
+
+/** Reads the products of the past reports, so they can be assigned before the next report. */
+export async function discoverAppleProductsAction(accountId: string): Promise<void> {
+  await requireAdmin();
+  let found = 0;
+  try {
+    found = await discoverProducts(accountId);
+  } catch (error) {
+    appleBack(accountId, "error", `Could not read the past reports: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+  appleBack(accountId, "notice", found > 0 ? "apple_products_found" : "apple_products_none");
 }
 
 /** Assigns the account's products to projects: one `product_<id>` field per product (empty = unassigned). */
