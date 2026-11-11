@@ -12,7 +12,8 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
   const [tenants, failed] = await Promise.all([
     prisma.tenant.findMany({
       orderBy: { createdAt: "asc" },
-      include: { _count: { select: { invoices: true } } },
+      // Deleted invoices are not counted: they only show under the Deleted tab.
+      include: { _count: { select: { invoices: { where: { status: { not: "DELETED" } } } } } },
     }),
     prisma.invoice.groupBy({ by: ["tenantId"], where: { status: "FAILED" }, _count: { _all: true } }),
   ]);
