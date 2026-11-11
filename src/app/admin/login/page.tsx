@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isAdmin } from "@/lib/admin-session";
+import { BrandMark } from "@/components/brand";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export default async function LoginPage() {
     <div className="login">
       <div className="login-brand">
         <Link href="/" className="name">
+          <BrandMark size={64} className="login-mark" />
           fic-
           <br />
           invoicing

@@ -133,6 +133,9 @@ code,
 }
 
 .rail-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-size: 21px;
   font-weight: 800;
   letter-spacing: -0.03em;
@@ -1422,6 +1425,11 @@ details.confirm .confirm-box p {
   color: var(--on-red);
 }
 
+.login-brand .login-mark {
+  display: block;
+  margin-bottom: 20px;
+}
+
 .login-brand .name {
   font-size: clamp(40px, 5.4vw, 76px);
   line-height: 0.95;
@@ -1491,11 +1499,10 @@ details.confirm .confirm-box p {
 }
 
 .home-brand {
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  text-decoration: none;
+  display: inline-flex;
   margin-right: auto;
+  line-height: 0;
+  text-decoration: none;
 }
 
 .home-bar nav {

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter_Tight, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -21,6 +21,8 @@ export const metadata: Metadata = {
   description: "Self-hosted service that issues Italian electronic invoices through Fatture in Cloud, for several apps at once.",
   robots: { index: false, follow: false },
 };
+
+export const viewport: Viewport = { themeColor: "#e3001b" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

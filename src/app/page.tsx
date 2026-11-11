@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/brand";
 import { CopyButton } from "@/components/copy-button";
 import { ArrowRight, External } from "@/components/icons";
 
@@ -94,8 +95,8 @@ export default function Home() {
   return (
     <div className="home">
       <header className="home-bar">
-        <Link href="/" className="home-brand">
-          fic-invoicing
+        <Link href="/" className="home-brand" aria-label="fic-invoicing, home">
+          <Logo height={30} />
         </Link>
         <nav aria-label="Page">
           <a href="#why">Why</a>
