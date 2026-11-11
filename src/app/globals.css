@@ -1398,6 +1398,37 @@ th.amount {
   justify-content: space-between;
 }
 
+.app-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.usage li.app-row {
+  align-items: stretch;
+}
+
+.app-row .product-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.app-line > summary {
+  width: fit-content;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.app-line[open] > summary {
+  margin-bottom: 12px;
+}
+
 .product-row > span {
   display: flex;
   flex-direction: column;

@@ -52,10 +52,17 @@ export function parseCustomer(value: unknown): AppStoreCustomer {
 
 export interface AppStoreInvoiceLine {
   projectId: string;
-  /** The app (project) name printed in the description. */
+  /** The name `{app}` stands for in the description: the project's. */
   appName: string;
+  /** Line name; empty uses the account's. */
+  itemName?: string | null;
+  /** Description with {app}, {periodo} and {transaction}; empty uses DEFAULT_DESCRIPTION. */
+  description?: string | null;
   amountCents: number;
 }
+
+/** The description of a line when its app sets none, as on the invoices issued by hand. */
+export const DEFAULT_DESCRIPTION = "Proventi da distribuzione app {app}, report finanziario Apple periodo fiscale {periodo}{transaction}";
 
 export interface AppStoreInvoiceInput {
   period: string;
@@ -73,12 +80,22 @@ export type AppStoreSettings = Pick<
 
 export const totalCents = (lines: Pick<AppStoreInvoiceLine, "amountCents">[]) => lines.reduce((sum, l) => sum + l.amountCents, 0);
 
-/** "Proventi da distribuzione app ZenTap, report finanziario Apple periodo fiscale settembre 2026, Transaction ID: 411399920" */
-export function appStoreDescription(appName: string, input: Pick<AppStoreInvoiceInput, "period" | "transactionId">): string {
+/**
+ * A line description: {app} → the app name, {periodo} → "Settembre 2026", {transaction} →
+ * ", Transaction ID: 411399920" (nothing when no id was given).
+ * "Proventi da distribuzione app ZenTap, report finanziario Apple periodo fiscale Settembre 2026, Transaction ID: 411399920"
+ */
+export function appStoreDescription(
+  appName: string,
+  input: Pick<AppStoreInvoiceInput, "period" | "transactionId">,
+  template?: string | null,
+): string {
   const month = labelIt(periodFromCode(input.period));
-  const label = month.charAt(0).toUpperCase() + month.slice(1);
   const tid = input.transactionId?.trim();
-  return `Proventi da distribuzione app ${appName}, report finanziario Apple periodo fiscale ${label}${tid ? `, Transaction ID: ${tid}` : ""}`;
+  return (template?.trim() || DEFAULT_DESCRIPTION)
+    .replaceAll("{app}", appName)
+    .replaceAll("{periodo}", month.charAt(0).toUpperCase() + month.slice(1))
+    .replaceAll("{transaction}", tid ? `, Transaction ID: ${tid}` : "");
 }
 
 function requireId(value: number | null, label: string): number {
@@ -144,14 +161,14 @@ export function buildAppStorePayload(
       items_list: input.lines.map((line) => ({
         product_id: null,
         code: "",
-        name: settings.itemName,
+        name: line.itemName?.trim() || settings.itemName,
         net_price: centsToEuros(line.amountCents),
         gross_price: centsToEuros(line.amountCents),
         category: "",
         qty: 1,
         vat: { id: vatTypeId },
         not_taxable: false,
-        description: appStoreDescription(line.appName, input),
+        description: appStoreDescription(line.appName, input, line.description),
       })),
       payments_list: [
         {

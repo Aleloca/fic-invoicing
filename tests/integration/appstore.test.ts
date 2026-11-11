@@ -176,13 +176,13 @@ describe.skipIf(!hasTestDb)("Apple accounts and invoices to Apple (integration)"
     await checkAccount(account.id, NOW);
     const r = await prisma.appStoreReport.findFirstOrThrow();
     const lines = r.lines as unknown as ReportLine[];
-    const load = () => prisma.appleProduct.findMany({ include: { project: { select: { name: true } } } });
+    const load = () => productsWithProjects(account.id);
 
     expect(groupReport(lines, await load(), RATES).unassigned).toHaveLength(3);
     await assignAll(account.id, { "6760715414": zentap.id, "777": moonlog.id });
     const groups = groupReport(lines, await load(), RATES);
     expect(groups.unassigned).toEqual([]);
-    expect(groups.projects.map((g) => [g.projectName, g.estimatedCents])).toEqual([
+    expect(groups.groups.map((g) => [g.projectName, g.estimatedCents])).toEqual([
       ["MoonLog", 126],
       ["ZenTap", 118],
     ]);
@@ -247,6 +247,36 @@ describe.skipIf(!hasTestDb)("Apple accounts and invoices to Apple (integration)"
     await expect(
       issueAppStoreInvoice(account, r.id, { lines: [{ projectId: zentap.id, appName: "ZenTap", amountCents: 1 }], date: "2026-11-11" }),
     ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("uses each app's own line name and description", async () => {
+    const fic = installFicMock({ appleReports: REPORTS, ecbRates: RATES });
+    const { account, zentap } = await setup("2026-12");
+    await checkAccount(account.id, NOW);
+    const app = await prisma.appleApp.create({
+      data: {
+        accountId: account.id,
+        appleId: "6760715406",
+        sku: "com.app.zentap",
+        name: "ZenTap - Fidget Toys",
+        projectId: zentap.id,
+        invoiceItemName: "Distribuzione app ZenTap",
+        invoiceDescription: "Vendite ZenTap su App Store, {periodo}{transaction}",
+      },
+    });
+    await prisma.appleProduct.update({ where: { accountId_appleId: { accountId: account.id, appleId: "6760715414" } }, data: { appId: app.id } });
+    const r = await prisma.appStoreReport.findFirstOrThrow();
+    const groups = groupReport(r.lines as unknown as ReportLine[], await productsWithProjects(account.id), RATES);
+    const zen = groups.groups.find((g) => g.key === `app:${app.id}`)!;
+    expect(zen).toMatchObject({ appName: "ZenTap - Fidget Toys", itemName: "Distribuzione app ZenTap", estimatedCents: 118 });
+
+    await issueAppStoreInvoice(account, r.id, {
+      lines: [{ projectId: zen.projectId, appName: zen.projectName, itemName: zen.itemName, description: zen.description, amountCents: 118 }],
+      date: "2026-11-11",
+      transactionId: "411399920",
+    });
+    const [item] = (fic.callsTo(/^\/c\/\d+\/issued_documents$/)[0].body as SentDocument).data.items_list;
+    expect(item).toMatchObject({ name: "Distribuzione app ZenTap", description: "Vendite ZenTap su App Store, Settembre 2026, Transaction ID: 411399920" });
   });
 
   it("follows the account's dry run and declares, never charges, the stamp duty above €77.47", async () => {

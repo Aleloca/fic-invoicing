@@ -87,3 +87,13 @@ describe("project suggestion for Apple products", () => {
     expect(suggestProject({ sku: "zentap_moonl0g", title: "Bundle" }, [...projects, { id: "p4", name: "Zentap2", slug: "zentap" }])).toBeNull();
   });
 });
+
+describe("App Store line description", () => {
+  it("fills {app}, {periodo} and {transaction}", async () => {
+    const { appStoreDescription } = await import("@/lib/appstore/payload");
+    expect(appStoreDescription("ZenTap", { period: "2026-12", transactionId: "411399920" })).toBe(
+      "Proventi da distribuzione app ZenTap, report finanziario Apple periodo fiscale Settembre 2026, Transaction ID: 411399920",
+    );
+    expect(appStoreDescription("ZenTap", { period: "2027-01", transactionId: null }, "{app} – {periodo}{transaction}")).toBe("ZenTap – Ottobre 2026");
+  });
+});
