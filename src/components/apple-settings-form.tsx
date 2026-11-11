@@ -126,11 +126,16 @@ export function AppleSettingsForm({
                 The Fatture in Cloud company Apple pays. Numeration and sending to SDI follow its defaults.
               </span>
             </div>
-            <label className="toggle inline-toggle field-toggle">
-              <input type="checkbox" name="dryRun" defaultChecked={account?.dryRun ?? true} />
-              <strong>Dry run</strong>
-              <span className="hint">Invoices to Apple are only validated, nothing is created in Fatture in Cloud.</span>
-            </label>
+            <div className="field">
+              <span className="label">Mode</span>
+              <label className="toggle inline-toggle">
+                <input type="checkbox" name="dryRun" defaultChecked={account?.dryRun ?? true} aria-describedby="dryRun-hint" />
+                <strong>Dry run</strong>
+              </label>
+              <span className="hint" id="dryRun-hint">
+                Invoices to Apple are only validated, nothing is created in Fatture in Cloud.
+              </span>
+            </div>
           </div>
 
           <h3 className="subhead">Customer</h3>

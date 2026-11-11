@@ -1409,12 +1409,6 @@ th.amount {
   min-width: 220px;
 }
 
-.toggle.field-toggle {
-  align-self: end;
-  min-height: 44px;
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
 @media (max-width: 640px) {
   .product-row select {
     width: 100%;

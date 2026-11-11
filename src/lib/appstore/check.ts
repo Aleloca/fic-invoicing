@@ -136,6 +136,30 @@ export function checkAllAccounts(): Promise<void> {
 }
 
 /**
+ * Records the products sold in the last `lookBack` ended periods, without creating reports, so the
+ * admin can assign them to projects before the next report arrives. Returns how many are new.
+ */
+export async function discoverProducts(accountId: string, now: Date = new Date(), lookBack = 24): Promise<number> {
+  const account = await prisma.appleAccount.findUniqueOrThrow({ where: { id: accountId } });
+  const credentials = credentialsOf(account);
+  const before = await prisma.appleProduct.count({ where: { accountId } });
+  let code = lastEndedPeriod(now).code;
+  for (let i = 0; i < lookBack; i += 1, code = previousCode(code)) {
+    const tsv = await downloadFinancialReport(credentials, code);
+    if (tsv === null) continue;
+    for (const line of parseFinancialReport(tsv)) {
+      await prisma.appleProduct.upsert({
+        where: { accountId_appleId: { accountId, appleId: line.appleId } },
+        create: { accountId, appleId: line.appleId, sku: line.sku, title: line.title },
+        // Keep the newest name: periods are read from the latest backwards.
+        update: {},
+      });
+    }
+  }
+  return (await prisma.appleProduct.count({ where: { accountId } })) - before;
+}
+
+/**
  * The period to start invoicing from when an account is set up: the one after the latest report
  * Apple has, among the last `lookBack` ended periods (those are taken as already invoiced by hand).
  * Also proves that the credentials work.
