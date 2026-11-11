@@ -1,13 +1,66 @@
 import type { InvoiceStatus, Tenant } from "@prisma/client";
 
-export function ConnectionBadge({ tenant }: { tenant: Pick<Tenant, "accessTokenEnc" | "ficCompanyId" | "ficCompanyName" | "ficNeedsReconnect"> }) {
-  if (tenant.ficNeedsReconnect) return <span className="badge danger">reconnect required</span>;
-  if (!tenant.accessTokenEnc) return <span className="badge muted">not connected</span>;
-  if (!tenant.ficCompanyId) return <span className="badge warn">pick a company</span>;
-  return <span className="badge ok">{tenant.ficCompanyName ?? `company ${tenant.ficCompanyId}`}</span>;
+export function ConnectionMark({
+  tenant,
+}: {
+  tenant: Pick<Tenant, "accessTokenEnc" | "ficCompanyId" | "ficCompanyName" | "ficNeedsReconnect">;
+}) {
+  if (tenant.ficNeedsReconnect) return <span className="mark failed">Reconnect required</span>;
+  if (!tenant.accessTokenEnc) return <span className="mark off">Not connected</span>;
+  if (!tenant.ficCompanyId) return <span className="mark attention">Company not chosen</span>;
+  return <span className="mark connected">{tenant.ficCompanyName ?? `Company #${tenant.ficCompanyId}`}</span>;
 }
 
-export function StatusBadge({ status }: { status: InvoiceStatus }) {
-  const tone = status === "ISSUED" ? "ok" : status === "FAILED" ? "danger" : status === "DELETED" ? "muted" : "warn";
-  return <span className={`badge ${tone}`}>{status}</span>;
+/** Plain-language meaning of each invoice status, for readers who do not know the API. */
+export const STATUS_INFO: Record<InvoiceStatus, { label: string; tone: string; meaning: string }> = {
+  ISSUED: {
+    label: "Issued",
+    tone: "issued",
+    meaning: "Created in Fatture in Cloud with its number. With dry run it was only validated.",
+  },
+  PENDING: {
+    label: "Pending",
+    tone: "pending",
+    meaning: "The request arrived and is being processed. It should not stay here for long.",
+  },
+  FAILED: {
+    label: "Failed",
+    tone: "failed",
+    meaning: "Fatture in Cloud refused it or could not be reached. No number was used; it can be retried.",
+  },
+  DELETED: {
+    label: "Deleted",
+    tone: "deleted",
+    meaning: "Deleted from Fatture in Cloud by an admin before it was sent to SDI. Kept here for the record.",
+  },
+};
+
+export function StatusMark({ status }: { status: InvoiceStatus }) {
+  const info = STATUS_INFO[status];
+  return (
+    <span className={`mark ${info.tone}`} title={info.meaning}>
+      {info.label}
+    </span>
+  );
+}
+
+export function StatusLegend() {
+  return (
+    <dl className="legend">
+      {(Object.keys(STATUS_INFO) as InvoiceStatus[]).map((s) => (
+        <div key={s}>
+          <dt>
+            <StatusMark status={s} />
+          </dt>
+          <dd>{STATUS_INFO[s].meaning}</dd>
+        </div>
+      ))}
+      <div>
+        <dt>
+          <span className="tag dry">Dry run</span>
+        </dt>
+        <dd>A test: checked against Fatture in Cloud&apos;s totals, but no real invoice exists.</dd>
+      </div>
+    </dl>
+  );
 }

@@ -1,10 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Notices } from "@/components/notices";
+import { ArrowLeft } from "@/components/icons";
+import { Notice, Notices } from "@/components/notices";
 import { listUserCompanies, type FicCompany } from "@/lib/fic/client";
 import { getFicAccess } from "@/lib/fic/tokens";
 import { prisma } from "@/lib/prisma";
 import { selectCompanyAction } from "../../../../actions";
+
+export const metadata: Metadata = { title: "Choose the company" };
 
 export default async function CompanyPage({
   params,
@@ -28,29 +32,58 @@ export default async function CompanyPage({
   }
 
   return (
-    <div className="narrow">
-      <h1>Choose the Fatture in Cloud company</h1>
-      <p className="muted">Tenant: {tenant.name}</p>
-      <Notices error={error} />
-      {loadError && <p className="notice error">{loadError}</p>}
-      <div className="card">
-        {companies.length === 0 && !loadError ? (
-          <p>This Fatture in Cloud user has no companies.</p>
-        ) : (
-          <form action={selectCompanyAction.bind(null, tenant.id)}>
-            {companies.map((c) => (
-              <label key={c.id} className="inline">
-                <input type="radio" name="companyId" value={c.id} required defaultChecked={c.id === tenant.ficCompanyId} />
-                {c.name} <span className="muted small">#{c.id}</span>
-              </label>
-            ))}
-            <p>
-              <button type="submit">Use this company</button>
-            </p>
-          </form>
-        )}
+    <div style={{ maxWidth: 720 }}>
+      <Link href={`/admin/tenants/${tenant.id}`} className="crumb">
+        <ArrowLeft />
+        {tenant.name}
+      </Link>
+      <div className="page-head">
+        <h1>Choose the company</h1>
+        <p className="sub">
+          Invoices for {tenant.name} are issued by this Fatture in Cloud company. The list shows every company the
+          authorized user can access.
+        </p>
       </div>
-      <Link href={`/admin/tenants/${tenant.id}`}>Back to tenant</Link>
+      <Notices error={error} />
+      {loadError && <Notice tone="error">{loadError}</Notice>}
+      {companies.length === 0 && !loadError ? (
+        <div className="empty">
+          <h2>No companies</h2>
+          <p>This Fatture in Cloud user has no companies. Reconnect with the user that owns the company.</p>
+          <Link className="btn secondary" href={`/admin/tenants/${tenant.id}#connection`}>
+            Back to the connection
+          </Link>
+        </div>
+      ) : (
+        companies.length > 0 && (
+          <form action={selectCompanyAction.bind(null, tenant.id)}>
+            <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+              <legend className="visually-hidden">Fatture in Cloud companies</legend>
+              <div className="choices">
+                {companies.map((c) => (
+                  <label key={c.id} className="choice">
+                    <input
+                      type="radio"
+                      name="companyId"
+                      value={c.id}
+                      required
+                      defaultChecked={c.id === tenant.ficCompanyId}
+                    />
+                    <span>
+                      <strong>{c.name}</strong> <span className="hint">#{c.id}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="form-foot" style={{ paddingTop: 24 }}>
+              <button type="submit" className="btn">
+                Use this company
+              </button>
+            </div>
+          </form>
+        )
+      )}
     </div>
   );
 }

@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T00:00:00Z",
+  "title": "Design System: fic-invoicing",
+  "extensions": {
+    "colorMeta": {
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "#ffffff", "tonalRamp": ["#262626", "#3d3d3d", "#5c5c5c", "#7f7f7f", "#a3a3a3", "#c7c7c7", "#e6e6e6", "#ffffff"] },
+      "field": { "role": "neutral", "displayName": "Field", "canonical": "#f3f2ef", "tonalRamp": ["#262523", "#3d3c39", "#5c5a56", "#7f7d78", "#a3a19b", "#c7c5bf", "#e8e7e3", "#f3f2ef"] },
+      "field-2": { "role": "neutral", "displayName": "Field Deep", "canonical": "#e8e7e3", "tonalRamp": ["#262523", "#3d3c39", "#5c5a56", "#7f7d78", "#a3a19b", "#c7c5bf", "#e8e7e3", "#f3f2ef"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#111111", "tonalRamp": ["#111111", "#2a2a2a", "#3f3f3d", "#626260", "#8a8a87", "#b3b2ae", "#d6d5d0", "#f3f2ef"] },
+      "ink-2": { "role": "neutral", "displayName": "Ink 2", "canonical": "#3f3f3d", "tonalRamp": ["#111111", "#2a2a2a", "#3f3f3d", "#626260", "#8a8a87", "#b3b2ae", "#d6d5d0", "#f3f2ef"] },
+      "ink-3": { "role": "neutral", "displayName": "Ink 3", "canonical": "#626260", "tonalRamp": ["#111111", "#2a2a2a", "#3f3f3d", "#626260", "#8a8a87", "#b3b2ae", "#d6d5d0", "#f3f2ef"] },
+      "hair": { "role": "neutral", "displayName": "Hair", "canonical": "#d6d5d0", "tonalRamp": ["#111111", "#2a2a2a", "#3f3f3d", "#626260", "#8a8a87", "#b3b2ae", "#d6d5d0", "#f3f2ef"] },
+      "rule": { "role": "neutral", "displayName": "Rule", "canonical": "#111111" },
+      "signal-red": { "role": "primary", "displayName": "Signal Red", "canonical": "#e3001b", "tonalRamp": ["#3d0007", "#61000c", "#8a0012", "#b10016", "#e3001b", "#f2525f", "#f9a3aa", "#ffe3e6"] },
+      "red-ink": { "role": "primary", "displayName": "Red Ink", "canonical": "#b10016", "tonalRamp": ["#3d0007", "#61000c", "#8a0012", "#b10016", "#e3001b", "#f2525f", "#f9a3aa", "#ffe3e6"] },
+      "on-red": { "role": "neutral", "displayName": "On Red", "canonical": "#ffffff" },
+      "on-red-2": { "role": "neutral", "displayName": "On Red Soft", "canonical": "#ffe3e6" },
+      "line-green": { "role": "secondary", "displayName": "Line Green", "canonical": "#00843d", "tonalRamp": ["#00260f", "#003d1a", "#005c28", "#00843d", "#2fa862", "#6cc792", "#b0e2c4", "#e6f5ec"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Home wordmark only; never wraps." },
+      "headline": { "displayName": "Headline", "purpose": "Admin page titles." },
+      "title": { "displayName": "Title", "purpose": "Section, empty-state and tenant headings." },
+      "body": { "displayName": "Body", "purpose": "Running text and table cells." },
+      "label": { "displayName": "Label", "purpose": "Form labels." },
+      "table-head": { "displayName": "Table head", "purpose": "Uppercase column headers only." },
+      "mono": { "displayName": "Mono", "purpose": "API keys, commands, code, slugs." }
+    },
+    "shadows": [
+      { "name": "station-current", "value": "0 0 0 4px var(--paper), 0 0 0 6px var(--done)", "purpose": "Double ring on the current station of a setup line (not elevation)." },
+      { "name": "station-end", "value": "0 0 0 5px var(--paper), 0 0 0 8px var(--green)", "purpose": "Green double ring on the home line's Live station." },
+      { "name": "focus-field", "value": "0 0 0 3px var(--paper), 0 0 0 5px var(--red)", "purpose": "Focus ring on inputs, selects and textareas." },
+      { "name": "tag-dry", "value": "inset 0 0 0 2px var(--ink)", "purpose": "Ink outline of the dry-run tag." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "All transitions and the line draw." },
+      { "name": "control", "value": "140ms", "purpose": "Button and input state changes." },
+      { "name": "rail-link", "value": "160ms", "purpose": "Rail link colour and rule changes." },
+      { "name": "line-progress", "value": "700ms", "purpose": "Setup line progress fill width." },
+      { "name": "line-draw", "value": "1400ms, 150ms delay", "purpose": "Home quickstart line drawing in; disabled under reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "stack", "value": "640px" },
+      { "name": "login", "value": "760px" },
+      { "name": "rail", "value": "860px" },
+      { "name": "home-line", "value": "900px" },
+      { "name": "tenant-row", "value": "980px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Black square button for the main action of a page or form.",
+      "html": "<button class=\"ds-btn\">New tenant</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 2px solid var(--ink, #111); border-radius: 0; background: var(--ink, #111); color: var(--paper, #fff); font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; font-weight: 600; line-height: 1; cursor: pointer; transition: background-color 140ms cubic-bezier(0.16,1,0.3,1), border-color 140ms cubic-bezier(0.16,1,0.3,1); } .ds-btn:hover { background: var(--ink-2, #3f3f3d); border-color: var(--ink-2, #3f3f3d); } .ds-btn:focus-visible { outline: 3px solid var(--ink, #111); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ink-outlined button for secondary actions.",
+      "html": "<button class=\"ds-btn-secondary\">Copy</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 2px solid var(--ink, #111); border-radius: 0; background: transparent; color: var(--ink, #111); font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; font-weight: 600; line-height: 1; cursor: pointer; transition: background-color 140ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-secondary:hover { background: var(--field, #f3f2ef); } .ds-btn-secondary:focus-visible { outline: 3px solid var(--ink, #111); outline-offset: 2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Red-ink outline for destructive actions, always behind a confirm.",
+      "html": "<button class=\"ds-btn-danger\">Delete invoice</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; font-size: 14px; border: 2px solid var(--red-ink, #b10016); border-radius: 0; background: transparent; color: var(--red-ink, #b10016); font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; font-weight: 600; line-height: 1; cursor: pointer; } .ds-btn-danger:hover { background: var(--field, #f3f2ef); } .ds-btn-danger:focus-visible { outline: 3px solid var(--ink, #111); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Square 2px-ink field with a signal-red focus ring.",
+      "html": "<label class=\"ds-field\"><span>Tenant name</span><input class=\"ds-input\" type=\"text\" placeholder=\"My shop\"></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-field > span { font-size: 14px; font-weight: 700; color: #111; } .ds-input { min-height: 44px; padding: 10px 12px; border: 2px solid var(--ink, #111); border-radius: 0; background: var(--paper, #fff); color: var(--ink, #111); font: inherit; font-size: 15px; transition: box-shadow 140ms cubic-bezier(0.16,1,0.3,1); } .ds-input::placeholder { color: #626260; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--red, #e3001b); }"
+    },
+    {
+      "name": "Rail Navigation",
+      "kind": "nav",
+      "refersTo": "rail",
+      "description": "Signal-red rail with ruled links; current page in full white.",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-brand\" href=\"#\">fic-invoicing</a><a class=\"ds-rail-link\" href=\"#\" aria-current=\"page\">Tenants</a><a class=\"ds-rail-link\" href=\"#\">Invoices</a><a class=\"ds-rail-link\" href=\"#\">API docs</a></nav>",
+      "css": ".ds-rail { display: flex; flex-direction: column; width: 232px; padding: 28px 24px 24px; background: var(--red, #e3001b); color: #fff; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-rail-brand { font-size: 21px; font-weight: 800; letter-spacing: -0.03em; text-decoration: none; color: #fff; margin-bottom: 40px; } .ds-rail-link { padding: 10px 0 12px; border-top: 2px solid rgb(255 255 255 / 0.35); font-weight: 600; text-decoration: none; color: #ffe3e6; transition: border-color 160ms cubic-bezier(0.16,1,0.3,1), color 160ms cubic-bezier(0.16,1,0.3,1); } .ds-rail-link:hover { color: #fff; border-top-color: rgb(255 255 255 / 0.7); } .ds-rail-link[aria-current='page'] { color: #fff; border-top-color: #fff; } .ds-rail-link:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Marks",
+      "kind": "chip",
+      "refersTo": "tag-dry",
+      "description": "Metro marks with words: green dot for issued, hollow ink ring for pending, red-ink triangle for failed, struck ink-3 for deleted, plus the ink-outlined dry-run tag.",
+      "html": "<div class=\"ds-marks\"><span class=\"ds-mark ds-issued\">Issued</span><span class=\"ds-mark ds-pending\">Pending</span><span class=\"ds-mark ds-failed\">Failed</span><span class=\"ds-mark ds-deleted\">Deleted</span><span class=\"ds-tag-dry\">Dry run</span></div>",
+      "css": ".ds-marks { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-mark { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; color: #111; } .ds-mark::before { content: ''; width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; } .ds-issued::before { background: var(--green, #00843d); } .ds-pending::before { background: #fff; border: 3px solid #111; } .ds-failed { color: var(--red-ink, #b10016); } .ds-failed::before { width: 14px; border-radius: 0; background: var(--red-ink, #b10016); clip-path: polygon(50% 0, 100% 100%, 0 100%); } .ds-deleted { color: #626260; text-decoration: line-through; text-decoration-thickness: 2px; } .ds-deleted::before { background: #fff; border: 2px solid #626260; } .ds-tag-dry { display: inline-flex; padding: 2px 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; background: #fff; color: #111; box-shadow: inset 0 0 0 2px #111; }"
+    },
+    {
+      "name": "Notice",
+      "kind": "card",
+      "refersTo": "notice",
+      "description": "Warm-grey notice with a 2px top rule: ink by default, red ink for errors.",
+      "html": "<div class=\"ds-notice\"><svg viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"square\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v6M12 7.5v.5\"/></svg><div>Configuration saved.</div></div><div class=\"ds-notice ds-notice-error\"><svg viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.25\" stroke-linecap=\"square\" stroke-linejoin=\"miter\"><path d=\"M12 3 2 21h20L12 3Z\"/><path d=\"M12 10v5M12 17.5v.5\"/></svg><div>The authorization link expired. Start the connection again.</div></div>",
+      "css": ".ds-notice { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; margin-bottom: 12px; background: var(--field, #f3f2ef); border-top: 2px solid var(--ink, #111); color: var(--ink, #111); font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; font-size: 15px; max-width: 820px; } .ds-notice svg { flex: none; margin-top: 2px; } .ds-notice-error { border-top-color: var(--red-ink, #b10016); color: var(--red-ink, #b10016); font-weight: 500; }"
+    },
+    {
+      "name": "Setup Line",
+      "kind": "custom",
+      "refersTo": "setup-line",
+      "description": "Six-station metro line from Created to Live, derived from tenant fields.",
+      "html": "<ol class=\"ds-line\" style=\"--progress: 0.6\"><li class=\"ds-stop done\"><span class=\"ds-dot\"></span>Created</li><li class=\"ds-stop done\"><span class=\"ds-dot\"></span>Connected</li><li class=\"ds-stop done\"><span class=\"ds-dot\"></span>Company</li><li class=\"ds-stop current\"><span class=\"ds-dot\"></span>Configured</li><li class=\"ds-stop\"><span class=\"ds-dot\"></span>Dry run</li><li class=\"ds-stop\"><span class=\"ds-dot\"></span>Live</li></ol>",
+      "css": ".ds-line { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-line::before, .ds-line::after { content: ''; position: absolute; top: 10px; height: 8px; left: calc(100% / 12); } .ds-line::before { right: calc(100% / 12); background: #e8e7e3; } .ds-line::after { width: calc((100% - 100% / 6) * var(--progress, 0)); background: #e3001b; } .ds-stop { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: #626260; } .ds-dot { width: 28px; height: 28px; box-sizing: border-box; border-radius: 50%; background: #fff; border: 6px solid #e8e7e3; } .ds-stop.done { color: #3f3f3d; } .ds-stop.done .ds-dot { border-color: #e3001b; } .ds-stop.current { color: #111; font-weight: 700; } .ds-stop.current .ds-dot { background: #e3001b; border-color: #e3001b; box-shadow: 0 0 0 4px #fff, 0 0 0 6px #e3001b; }"
+    },
+    {
+      "name": "Key Reveal",
+      "kind": "custom",
+      "refersTo": "key-reveal",
+      "description": "One-time API key display: field ground, 6px signal-red top rule, mono key box.",
+      "html": "<div class=\"ds-key\"><h3>Copy this API key now</h3><p>It is stored hashed and will not be shown again.</p><code>fic_live_3f9a2c7e1b5d48a0</code></div>",
+      "css": ".ds-key { display: flex; flex-direction: column; gap: 14px; padding: 22px; background: var(--field, #f3f2ef); border-top: 6px solid var(--red, #e3001b); font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; color: #111; } .ds-key h3 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; } .ds-key p { margin: 0; } .ds-key code { padding: 12px 14px; background: #fff; border: 2px solid #111; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 15px; word-break: break-all; user-select: all; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Milano Moderna",
+    "overview": "The interface is a Milan metro map of the instance, in the Noorda/Unimark and Olivetti tradition: white ground, a solid signal-red rail, near-black ink, bold tight grotesque type and 2px black rules between sections. Each tenant is a line whose six stations are its setup steps, and the home page is one line from `git clone` to the first live invoice. The metro line is the system's reusable signature; everything else stays quiet so the line and the statuses read first.\n\nDensity is that of an operations panel read by accountants as well as developers: generous row padding (24px tenant rows, 14px table cells), plain-language status words always next to their marks, and no decoration that is not a wayfinding device. The scene is a daylight office, so the system is light only (`color-scheme: light`); there is no dark theme.\n\nThe world rejects the category default it was built against: grey sidebar, white cards, pastel status pills. Depth comes from rules and flat warm-grey fields, never from cards or soft shadows.",
+    "keyCharacteristics": [
+      "Signal-red rail and brand, near-black ink, warm-grey fields, square corners everywhere except station dots.",
+      "2px black rules as the section divider; 1px hairlines inside lists and tables.",
+      "Inter Tight at 800 for every heading; JetBrains Mono 500 for keys, commands and code.",
+      "State carried by metro marks (filled green dot, hollow ink ring, red-ink triangle), always with a word.",
+      "Light only."
+    ],
+    "rules": [
+      { "name": "The Red Is Not An Error Rule", "body": "Signal red is the brand and the rail. Errors use red ink plus a mark (triangle, dashed ring or alert icon) plus words, never colour alone and never signal red.", "section": "colors" },
+      { "name": "The End Of The Line Rule", "body": "Green appears only for live and issued (and the success check). Dry run and pending are never green.", "section": "colors" },
+      { "name": "The No Wash Rule", "body": "There are no tinted or pastel backgrounds. Every notice, the confirm box and the key reveal sit on warm grey (`field`) and are told apart by their top rule: ink by default, red ink for errors and confirmations, signal red for the key reveal.", "section": "colors" },
+      { "name": "The Heavy Or Plain Rule", "body": "Headings are 800; body is 400; labels and controls are 600 to 700. No light display weights.", "section": "typography" },
+      { "name": "The Copy Is Mono Rule", "body": "Anything a reader copies or types into a terminal (API key, command, request, slug) is JetBrains Mono.", "section": "typography" },
+      { "name": "The Stacked Row Rule", "body": "Below 640px, invoice tables stop being tables: each row becomes a two-column grid placed by `data-col` (number left, status top right, amount right, tenant/customer/created below in ink-2, details and actions full width), separated by 2px rules.", "section": "layout" },
+      { "name": "The Ruled Not Raised Rule", "body": "Separate with a rule or a field, never with a card or shadow.", "section": "elevation" }
+    ],
+    "dos": [
+      "**Do** divide sections with a 2px ink rule and list items with a 1px hair.",
+      "**Do** pair every status colour with a mark shape and a plain word.",
+      "**Do** keep notices, confirmations and the key reveal on `field` and distinguish them by their top rule.",
+      "**Do** derive any setup line from stored tenant fields, six stations, from Created to Live.",
+      "**Do** set `color-scheme: light` and design for daylight only.",
+      "**Do** keep corners square; reserve round forms for stations and status dots."
+    ],
+    "donts": [
+      "**Don't** use signal red for errors or failure; use red ink with a mark.",
+      "**Don't** use green for dry run, pending or anything that is not live or issued.",
+      "**Don't** use tinted or pastel washes for notices or statuses.",
+      "**Don't** use cards, rounded corners or drop shadows for separation.",
+      "**Don't** introduce a dark theme."
+    ]
+  }
+}
