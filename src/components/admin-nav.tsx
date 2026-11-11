@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/admin", label: "Tenants", match: (p: string) => p === "/admin" || p.startsWith("/admin/tenants") },
   { href: "/admin/invoices", label: "Invoices", match: (p: string) => p.startsWith("/admin/invoices") },
+  { href: "/admin/api", label: "API reference", match: (p: string) => p.startsWith("/admin/api") },
 ];
 
 export function AdminNav() {
@@ -17,9 +18,6 @@ export function AdminNav() {
           {l.label}
         </Link>
       ))}
-      <Link href="/#api" className="rail-link">
-        API reference
-      </Link>
     </nav>
   );
 }

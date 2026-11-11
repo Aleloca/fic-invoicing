@@ -30,7 +30,7 @@ fiscal wording, country mapping, retries and idempotency each time. This service
 - Optional automatic transmission to SDI after creation.
 - Courtesy PDF download streamed from Fatture in Cloud.
 - OAuth tokens encrypted at rest (AES-256-GCM); token refresh serialized per tenant with a database row lock, because Fatture in Cloud rotates refresh tokens.
-- Admin panel: tenants, FIC connection and company choice, dropdowns for VAT types, payment accounts and methods, invoice list with retry and deletion of invoices not yet sent to SDI.
+- Admin panel: tenants, FIC connection and company choice, dropdowns for VAT types, payment accounts and methods, invoice lists (per tenant and across tenants) with retry and deletion of invoices not sent to SDI, and an API reference page that can be copied or downloaded as Markdown for coding agents.
 - Customer personal data is not kept after success (configurable).
 
 ## Quickstart (Docker Compose)
@@ -186,12 +186,17 @@ curl https://invoices.example.com/api/v1/health
 
 ### Deleted invoices
 
-An admin can delete an invoice from the admin panel (tenant → *Invoices* → *Delete*, then *Confirm delete*). Only
-`ISSUED` invoices with a document in Fatture in Cloud (`ficDocumentId` set) that were **not sent to SDI** can be
-deleted; once an e-invoice is transmitted, issue a credit note in Fatture in Cloud instead. The service calls
-`DELETE /c/{company_id}/issued_documents/{id}` (a `404` counts as already deleted) and keeps the row for audit:
-`status` becomes `DELETED`, `deletedAt` is set, `number` and `ficDocumentId` stay. `GET` returns it with
-`"status": "DELETED"`, `pdf` and `retry` return `409`.
+An admin can delete an invoice from the admin panel (*Invoices*, or tenant → *Invoices*, then *Delete* and
+*Confirm delete*). Any invoice **not sent to SDI** can be deleted, except a `PENDING` one still being processed;
+once an e-invoice is transmitted, issue a credit note in Fatture in Cloud instead.
+
+- With a document in Fatture in Cloud (`ficDocumentId` set) the service first calls
+  `DELETE /c/{company_id}/issued_documents/{id}` (a `404` counts as already deleted).
+- Dry runs and `FAILED` invoices have no document: only the row changes.
+
+The row is kept for audit: `status` becomes `DELETED`, `deletedAt` is set, `number` and `ficDocumentId` stay.
+`GET` returns it with `"status": "DELETED"`, `pdf` and `retry` return `409`, and its `idempotencyKey` stays used.
+In the panel, deleted invoices only show under the *Deleted* tab.
 
 Deleting an invoice that is not the latest of its numeration leaves a gap in the numbering.
 

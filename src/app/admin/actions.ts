@@ -185,7 +185,18 @@ export async function updateTenantConfigAction(tenantId: string, formData: FormD
   redirect(`/admin/tenants/${tenantId}?notice=saved`);
 }
 
-export async function retryInvoiceAction(tenantId: string, invoiceId: string): Promise<void> {
+/** Where an invoice action returns: the page it was sent from, when it is an admin invoices list. */
+function invoicesReturnPath(tenantId: string, formData: FormData | undefined, notice: string): string {
+  const raw = String(formData?.get("returnTo") ?? "");
+  const base = /^\/admin\/(invoices|tenants\/[\w-]+\/invoices)(\?[\w=&%.:-]*)?$/.test(raw)
+    ? raw
+    : `/admin/tenants/${tenantId}/invoices`;
+  const url = new URL(base, "http://local");
+  url.searchParams.set("notice", notice);
+  return `${url.pathname}${url.search}`;
+}
+
+export async function retryInvoiceAction(tenantId: string, invoiceId: string, formData?: FormData): Promise<void> {
   await requireAdmin();
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
   let notice = "retried";
@@ -195,10 +206,10 @@ export async function retryInvoiceAction(tenantId: string, invoiceId: string): P
   } catch (error) {
     notice = error instanceof ApiError ? `retry_error:${error.code}` : "retry_error";
   }
-  redirect(`/admin/tenants/${tenantId}/invoices?notice=${encodeURIComponent(notice)}`);
+  redirect(invoicesReturnPath(tenantId, formData, notice));
 }
 
-export async function deleteInvoiceAction(tenantId: string, invoiceId: string): Promise<void> {
+export async function deleteInvoiceAction(tenantId: string, invoiceId: string, formData?: FormData): Promise<void> {
   await requireAdmin();
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
   let notice = "deleted";
@@ -208,5 +219,5 @@ export async function deleteInvoiceAction(tenantId: string, invoiceId: string): 
     if (!(error instanceof ApiError)) console.error("[fic-invoicing] unexpected error while deleting invoice", invoiceId, error);
     notice = error instanceof ApiError ? `delete_error:${error.code}:${error.message}` : "delete_error";
   }
-  redirect(`/admin/tenants/${tenantId}/invoices?notice=${encodeURIComponent(notice)}`);
+  redirect(invoicesReturnPath(tenantId, formData, notice));
 }

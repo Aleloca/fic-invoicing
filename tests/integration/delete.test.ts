@@ -117,20 +117,33 @@ describe.skipIf(!hasTestDb)("invoice deletion (integration)", () => {
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: created.id } })).status).toBe("ISSUED");
   });
 
-  it("refuses invoices without a FIC document (dry run, failed)", async () => {
+  it("deletes dry runs and failed invoices locally, without calling FIC", async () => {
     const fic = installFicMock();
     const dry = await createTenant({ dryRun: true });
     const dryInvoice = await (await post(dry.apiKey, body())).json();
     expect(dryInvoice).toMatchObject({ status: "ISSUED", ficDocumentId: null });
-    await expectConflict(deleteInvoice(dry.tenant, dryInvoice.id), /document in Fatture in Cloud/);
+    const dryDeleted = await deleteInvoice(dry.tenant, dryInvoice.id);
+    expect(dryDeleted.status).toBe("DELETED");
+    expect(dryDeleted.deletedAt).not.toBeNull();
 
     fic.state.failCreateWith = 422;
     const live = await createTenant();
     const failed = await (await post(live.apiKey, body())).json();
     expect(failed.status).toBe("FAILED");
-    await expectConflict(deleteInvoice(live.tenant, failed.id), /document in Fatture in Cloud/);
+    expect((await deleteInvoice(live.tenant, failed.id)).status).toBe("DELETED");
 
     expect(fic.callsTo(/issued_documents\/\d+$/, "DELETE")).toHaveLength(0);
+    const retried = await retry(apiRequest("/x", { method: "POST", apiKey: live.apiKey }), params({ id: failed.id }));
+    expect(retried.status).toBe(409);
+  });
+
+  it("refuses invoices still being processed", async () => {
+    installFicMock();
+    const { tenant } = await createTenant();
+    const pending = await prisma.invoice.create({
+      data: { tenantId: tenant.id, idempotencyKey: "p-1", status: "PENDING", customerCategory: "IT_PRIVATE", amountCents: 100, description: "x", dryRun: false },
+    });
+    await expectConflict(deleteInvoice(tenant, pending.id), /being processed/);
   });
 
   it("does not delete another tenant's invoice", async () => {
