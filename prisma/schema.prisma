@@ -1,0 +1,113 @@
+// fic-invoicing data model.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum FiscalRegime {
+  FORFETTARIO
+  ORDINARIO
+}
+
+enum CustomerCategory {
+  IT_PRIVATE
+  EU_PRIVATE
+  EXTRAEU_PRIVATE
+  IT_BUSINESS
+}
+
+enum InvoiceStatus {
+  PENDING
+  ISSUED
+  FAILED
+}
+
+/// An app that calls the API. Each tenant connects its own Fatture in Cloud company.
+model Tenant {
+  id           String  @id @default(cuid())
+  name         String
+  slug         String  @unique
+  /// sha256 hex of the plaintext API key. The plaintext is shown once.
+  apiKeyHash   String  @unique @db.Char(64)
+  /// First characters of the key, to help admins recognise it. Not secret.
+  apiKeyPrefix String  @default("")
+  active       Boolean @default(true)
+
+  // --- Fatture in Cloud connection (tokens are AES-256-GCM encrypted) ---
+  ficCompanyId      Int?
+  ficCompanyName    String?
+  accessTokenEnc    String?   @db.Text
+  refreshTokenEnc   String?   @db.Text
+  tokenExpiresAt    DateTime?
+  connectedAt       DateTime?
+  /// Set when a token refresh is rejected by FIC: an admin must reconnect.
+  ficNeedsReconnect Boolean   @default(false)
+  ficLastError      String?   @db.Text
+
+  // --- Invoice configuration ---
+  /// VAT type used for invoice lines (FORFETTARIO: all categories; ORDINARIO: Italian customers).
+  vatTypeId           Int?
+  /// ORDINARIO only: VAT type for operations outside the scope of Italian VAT (art. 7-ter, EU / extra-EU private customers).
+  nonTaxableVatTypeId Int?
+  paymentAccountId    Int?
+  paymentMethodId     Int?
+  /// FIC numeration suffix, for example "/A". Null uses the company default numeration.
+  numeration          String?
+  /// Item code printed on the invoice line. Null leaves it empty.
+  itemCode            String?
+  fiscalRegime        FiscalRegime @default(FORFETTARIO)
+  /// Per-category overrides of the fiscal statement text: { "IT_PRIVATE": "...", ... }. Null uses presets.
+  fiscalStatements    Json?
+  /// SDI ModalitaPagamento code. MP08 = payment card.
+  eiPaymentMethod     String       @default("MP08")
+  /// Apply €2 stamp duty (imposta di bollo) on FORFETTARIO invoices above €77.47.
+  applyStampDuty      Boolean      @default(true)
+  /// After a real (non dry-run) invoice is created, ask FIC to send it to SDI.
+  sendToSdi           Boolean      @default(false)
+  /// When true every invoice is a FIC dry run: validated but never saved or sent.
+  dryRun              Boolean      @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  invoices  Invoice[]
+
+  @@map("tenants")
+}
+
+model Invoice {
+  id               String           @id @default(cuid())
+  tenantId         String
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  idempotencyKey   String           @db.VarChar(191)
+  externalRef      String?          @db.VarChar(191)
+  status           InvoiceStatus    @default(PENDING)
+  customerCategory CustomerCategory
+  /// Amount for the service, EUR cents. VAT-inclusive for ORDINARIO Italian customers.
+  amountCents      Int
+  stampDutyCents   Int              @default(0)
+  description      String           @db.Text
+  ficDocumentId    Int?
+  /// Full invoice number as printed, for example "12/A".
+  ficNumber        String?
+  dryRun           Boolean
+  errorMessage     String?          @db.Text
+  attempts         Int              @default(0)
+  /// Data needed to retry: contains the customer's personal data.
+  /// Nulled once the invoice is ISSUED when PURGE_PAYLOAD_ON_SUCCESS=true (default).
+  requestPayload   Json?
+  sdiSentAt        DateTime?
+  sdiError         String?          @db.Text
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@map("invoices")
+}
