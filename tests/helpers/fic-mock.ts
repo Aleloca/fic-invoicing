@@ -52,7 +52,7 @@ export interface RecordedCall {
 
 /**
  * Installs a fake Fatture in Cloud API on global `fetch`.
- * Supports token refresh (with rotation), document totals and creation, e-invoice send and PDF download.
+ * Supports token refresh (with rotation), document totals, creation and deletion, e-invoice send and PDF download.
  */
 export function installFicMock(options: FicMockOptions = {}) {
   const state = {
@@ -63,6 +63,8 @@ export function installFicMock(options: FicMockOptions = {}) {
     failTotalsWith: options.failTotalsWith ?? 0,
     /** When set, the totals endpoint reports this amount due instead of the computed one. */
     amountDueOverride: null as number | null,
+    /** Ids of documents created by the fake FIC and not deleted. */
+    documents: new Set<number>(),
     calls: [] as RecordedCall[],
   };
 
@@ -119,9 +121,16 @@ export function installFicMock(options: FicMockOptions = {}) {
         return json(422, { error: { message: "Il totale dei pagamenti non corrisponde al totale da pagare." } });
       }
       const number = state.nextNumber++;
+      state.documents.add(5000 + number);
       return json(200, {
         data: { id: 5000 + number, number, numeration: doc.data.numeration ?? "", amount_due: totals.amount_due },
       });
+    }
+
+    match = /^\/c\/(\d+)\/issued_documents\/(\d+)$/.exec(url.pathname);
+    if (method === "DELETE" && match) {
+      if (!state.documents.delete(Number(match[2]))) return json(404, { error: { message: "Document not found" } });
+      return new Response(null, { status: 200 });
     }
 
     match = /^\/c\/(\d+)\/issued_documents\/(\d+)\/preview_url$/.exec(url.pathname);

@@ -30,7 +30,7 @@ fiscal wording, country mapping, retries and idempotency each time. This service
 - Optional automatic transmission to SDI after creation.
 - Courtesy PDF download streamed from Fatture in Cloud.
 - OAuth tokens encrypted at rest (AES-256-GCM); token refresh serialized per tenant with a database row lock, because Fatture in Cloud rotates refresh tokens.
-- Admin panel: tenants, FIC connection and company choice, dropdowns for VAT types, payment accounts and methods, invoice list with retry.
+- Admin panel: tenants, FIC connection and company choice, dropdowns for VAT types, payment accounts and methods, invoice list with retry and deletion of invoices not yet sent to SDI.
 - Customer personal data is not kept after success (configurable).
 
 ## Quickstart (Docker Compose)
@@ -143,6 +143,7 @@ curl -X POST https://invoices.example.com/api/v1/invoices \
   "errorMessage": null,
   "attempts": 1,
   "sdi": { "sentAt": null, "error": null },
+  "deletedAt": null,
   "createdAt": "2026-11-11T15:08:00.408Z",
   "updatedAt": "2026-11-11T15:08:00.462Z"
 }
@@ -150,7 +151,7 @@ curl -X POST https://invoices.example.com/api/v1/invoices \
 
 Behaviour:
 
-- **Idempotency.** The same `idempotencyKey` for the same tenant returns the existing invoice with `200` and never calls Fatture in Cloud twice. A FAILED invoice is returned as is; use the retry endpoint.
+- **Idempotency.** The same `idempotencyKey` for the same tenant returns the existing invoice with `200` and never calls Fatture in Cloud twice. A FAILED invoice is returned as is; use the retry endpoint. A `DELETED` invoice is also returned as is, with `"status": "DELETED"`: it is not a valid invoice any more, so check `status` and use a new key to invoice again.
 - **Totals pre-check.** Before creating a document the service sends the same payload to Fatture in Cloud's `POST /c/{company_id}/issued_documents/totals`, which computes the totals without creating anything. If the recorded payment does not equal the amount due computed by Fatture in Cloud, the invoice is `FAILED` with both amounts in `errorMessage` and no document number is consumed.
 - **Failures.** If Fatture in Cloud rejects the invoice (totals or creation), the row becomes `FAILED` and the response is `502` with the invoice plus `"error": { "code": "fic_error", ... }`.
 - **Dry run.** `"dryRun": true` forces a dry run. `false` cannot turn off a tenant that is in dry-run mode. Fatture in Cloud has no dry run on document creation (its `dry_run` option is ignored and the document is created), so a dry run only calls the totals endpoint: nothing is created in Fatture in Cloud and nothing is sent to SDI. A dry run that passes is `ISSUED` with `dryRun: true`, `ficDocumentId: null` and `number: null`; a payment mismatch or a Fatture in Cloud error makes it `FAILED`. The totals endpoint does not run every check of document creation, so a passing dry run is a strong but not complete validation.
@@ -180,8 +181,19 @@ curl https://invoices.example.com/api/v1/health
 ```
 
 - `pdf` returns `409` when the invoice is not ISSUED or is a dry run (nothing exists in Fatture in Cloud).
-- `retry` works on `FAILED` invoices (and on ISSUED invoices whose automatic SDI send failed). It uses the tenant's current configuration. It returns `409` for other statuses or when the payload was purged.
+- `retry` works on `FAILED` invoices (and on ISSUED invoices whose automatic SDI send failed). It uses the tenant's current configuration. It returns `409` for other statuses (including `DELETED`) or when the payload was purged.
 - Tenants only see their own invoices: another tenant's id returns `404`.
+
+### Deleted invoices
+
+An admin can delete an invoice from the admin panel (tenant → *Invoices* → *Delete*, then *Confirm delete*). Only
+`ISSUED` invoices with a document in Fatture in Cloud (`ficDocumentId` set) that were **not sent to SDI** can be
+deleted; once an e-invoice is transmitted, issue a credit note in Fatture in Cloud instead. The service calls
+`DELETE /c/{company_id}/issued_documents/{id}` (a `404` counts as already deleted) and keeps the row for audit:
+`status` becomes `DELETED`, `deletedAt` is set, `number` and `ficDocumentId` stay. `GET` returns it with
+`"status": "DELETED"`, `pdf` and `retry` return `409`.
+
+Deleting an invoice that is not the latest of its numeration leaves a gap in the numbering.
 
 ## Fiscal logic
 

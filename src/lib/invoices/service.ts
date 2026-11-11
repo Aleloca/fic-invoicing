@@ -7,6 +7,7 @@ import { ApiError } from "../errors";
 import {
   computeIssuedDocumentTotals,
   createIssuedDocument,
+  deleteIssuedDocument,
   FicHttpError,
   sendEInvoice,
   type FicDocumentTotals,
@@ -262,6 +263,9 @@ export async function findTenantInvoice(tenantId: string, id: string): Promise<I
 export async function retryInvoice(tenant: Tenant, id: string): Promise<Invoice> {
   const invoice = await findTenantInvoice(tenant.id, id);
 
+  if (invoice.status === "DELETED") {
+    throw new ApiError(409, "conflict", "This invoice was deleted from Fatture in Cloud: it cannot be retried");
+  }
   if (invoice.status === "ISSUED" && invoice.sdiError && !invoice.sdiSentAt && invoice.ficDocumentId) {
     return retrySdiSend(tenant, invoice);
   }
@@ -296,4 +300,40 @@ async function retrySdiSend(tenant: Tenant, invoice: Invoice): Promise<Invoice> 
   } catch (error) {
     return prisma.invoice.update({ where: { id: invoice.id }, data: { sdiError: errorMessageOf(error) } });
   }
+}
+
+/** Whether an invoice can be deleted from Fatture in Cloud: a real document not sent to SDI. */
+export function isDeletable(invoice: Pick<Invoice, "status" | "ficDocumentId" | "sdiSentAt">): boolean {
+  return invoice.status === "ISSUED" && invoice.ficDocumentId !== null && invoice.sdiSentAt === null;
+}
+
+/**
+ * Deletes the invoice's document from Fatture in Cloud and marks the row DELETED.
+ * The row, number and document id are kept for audit. A FIC 404 counts as already deleted.
+ * Deleting an invoice that is not the latest of its numeration leaves a gap in the numbering.
+ */
+export async function deleteInvoice(tenant: Tenant, id: string): Promise<Invoice> {
+  const invoice = await findTenantInvoice(tenant.id, id);
+  if (invoice.status === "DELETED") return invoice;
+  if (invoice.status !== "ISSUED" || invoice.ficDocumentId === null) {
+    throw new ApiError(409, "conflict", "Only issued invoices with a document in Fatture in Cloud can be deleted");
+  }
+  if (invoice.sdiSentAt !== null) {
+    throw new ApiError(409, "conflict", "This invoice was sent to SDI: it cannot be deleted, issue a credit note instead");
+  }
+  assertTenantReady(tenant);
+
+  const access = await getFicAccess(tenant.id);
+  if (!access.companyId) throw new ApiError(409, "fic_not_connected", "No Fatture in Cloud company selected");
+  try {
+    await deleteIssuedDocument(access.accessToken, access.companyId, invoice.ficDocumentId);
+  } catch (error) {
+    if (error instanceof FicHttpError) throw new ApiError(502, "fic_error", error.message);
+    throw error;
+  }
+
+  return prisma.invoice.update({
+    where: { id: invoice.id },
+    data: { status: "DELETED", deletedAt: new Date() },
+  });
 }

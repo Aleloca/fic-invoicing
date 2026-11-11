@@ -3,10 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { StatusBadge } from "@/components/badges";
 import { Notices } from "@/components/notices";
+import { isDeletable } from "@/lib/invoices/service";
 import { prisma } from "@/lib/prisma";
-import { retryInvoiceAction } from "../../../../actions";
+import { deleteInvoiceAction, retryInvoiceAction } from "../../../../actions";
 
-const STATUSES: InvoiceStatus[] = ["PENDING", "ISSUED", "FAILED"];
+const STATUSES: InvoiceStatus[] = ["PENDING", "ISSUED", "FAILED", "DELETED"];
 const PAGE_SIZE = 50;
 
 function euros(cents: number): string {
@@ -43,18 +44,25 @@ export default async function InvoicesPage({
         amountCents: true,
         stampDutyCents: true,
         ficNumber: true,
+        ficDocumentId: true,
         dryRun: true,
         attempts: true,
         errorMessage: true,
         sdiSentAt: true,
         sdiError: true,
+        deletedAt: true,
       },
     }),
     prisma.invoice.count({ where }),
   ]);
 
-  const notice = query.notice?.startsWith("retry_error") ? undefined : query.notice;
-  const error = query.notice?.startsWith("retry_error") ? `Retry refused (${query.notice})` : undefined;
+  const isError = query.notice?.startsWith("retry_error") || query.notice?.startsWith("delete_error");
+  const notice = isError ? undefined : query.notice;
+  const error = !isError
+    ? undefined
+    : query.notice!.startsWith("retry_error")
+      ? `Retry refused (${query.notice})`
+      : `Delete refused: ${query.notice!.split(":").slice(1).join(":") || "unexpected error, check the server logs"}`;
   const filterHref = (s?: InvoiceStatus) => `/admin/tenants/${tenant.id}/invoices${s ? `?status=${s}` : ""}`;
 
   return (
@@ -116,6 +124,11 @@ export default async function InvoicesPage({
                       {inv.errorMessage && <span style={{ color: "var(--danger)" }}>{inv.errorMessage}</span>}
                       {inv.sdiSentAt && <span className="muted">Sent to SDI</span>}
                       {inv.sdiError && <span style={{ color: "var(--danger)" }}>SDI: {inv.sdiError}</span>}
+                      {inv.deletedAt && (
+                        <span className="muted">
+                          Deleted from FIC {inv.deletedAt.toISOString().replace("T", " ").slice(0, 16)}
+                        </span>
+                      )}
                       <span className="muted"> · {inv.attempts} attempt(s)</span>
                     </td>
                     <td>
@@ -125,6 +138,20 @@ export default async function InvoicesPage({
                             {sdiRetry ? "Resend to SDI" : "Retry"}
                           </button>
                         </form>
+                      )}
+                      {isDeletable(inv) && (
+                        <details className="confirm">
+                          <summary className="button secondary">Delete</summary>
+                          <p className="small">
+                            Deletes document {inv.ficNumber ?? `#${inv.ficDocumentId}`} from Fatture in Cloud. Deleting
+                            an invoice that is not the latest of its numeration leaves a gap in the numbering.
+                          </p>
+                          <form action={deleteInvoiceAction.bind(null, tenant.id, inv.id)}>
+                            <button type="submit" className="danger">
+                              Confirm delete
+                            </button>
+                          </form>
+                        </details>
                       )}
                     </td>
                   </tr>

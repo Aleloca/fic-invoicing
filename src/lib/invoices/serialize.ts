@@ -14,6 +14,8 @@ export interface InvoiceDto {
   errorMessage: string | null;
   attempts: number;
   sdi: { sentAt: string | null; error: string | null };
+  /** Set when status is DELETED: the document was deleted from Fatture in Cloud by an admin. */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +35,7 @@ export function toInvoiceDto(invoice: Invoice): InvoiceDto {
     errorMessage: invoice.errorMessage,
     attempts: invoice.attempts,
     sdi: { sentAt: invoice.sdiSentAt?.toISOString() ?? null, error: invoice.sdiError },
+    deletedAt: invoice.deletedAt?.toISOString() ?? null,
     createdAt: invoice.createdAt.toISOString(),
     updatedAt: invoice.updatedAt.toISOString(),
   };

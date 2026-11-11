@@ -79,6 +79,11 @@ button.secondary, .button.secondary { background: transparent; color: var(--acce
 button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
 button:disabled { opacity: 0.6; cursor: default; }
 
+details.confirm > summary { list-style: none; cursor: pointer; }
+details.confirm > summary::-webkit-details-marker { display: none; }
+details.confirm[open] > summary { margin-bottom: 8px; }
+details.confirm p { max-width: 260px; margin: 0 0 8px; }
+
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }

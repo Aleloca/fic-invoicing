@@ -39,6 +39,8 @@ enum InvoiceStatus {
   PENDING
   ISSUED
   FAILED
+  /// Deleted from Fatture in Cloud by an admin. The row is kept for audit.
+  DELETED
 }
 
 /// An app that calls the API. Each tenant connects its own Fatture in Cloud company.
@@ -118,6 +120,8 @@ model Invoice {
   requestPayload   Json?
   sdiSentAt        DateTime?
   sdiError         String?          @db.Text
+  /// When an admin deleted the document from Fatture in Cloud (status DELETED).
+  deletedAt        DateTime?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

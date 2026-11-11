@@ -91,7 +91,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Invoice" }
         "200":
-          description: An invoice with this idempotency key already exists; it is returned unchanged
+          description: |
+            An invoice with this idempotency key already exists; it is returned unchanged, whatever its status.
+            Check `status`: a `DELETED` invoice was deleted from Fatture in Cloud by an admin and is not valid.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Invoice" }
@@ -149,7 +151,7 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409":
-          description: Invoice not ISSUED, or a dry run without a document in Fatture in Cloud
+          description: Invoice not ISSUED (for example DELETED), or a dry run without a document in Fatture in Cloud
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -163,7 +165,7 @@ paths:
       description: |
         Re-issues a FAILED invoice with the tenant's current configuration. Also retries the SDI
         transmission of an ISSUED invoice whose automatic send to SDI failed.
-        Fails with 409 if the stored payload was purged.
+        Fails with 409 for other statuses (including DELETED) or if the stored payload was purged.
       responses:
         "200":
           description: Retried; check `status`
@@ -271,7 +273,10 @@ components:
         id: { type: string }
         idempotencyKey: { type: string }
         externalRef: { type: [string, "null"] }
-        status: { type: string, enum: [PENDING, ISSUED, FAILED] }
+        status:
+          type: string
+          enum: [PENDING, ISSUED, FAILED, DELETED]
+          description: DELETED means an admin deleted the document from Fatture in Cloud; the row is kept for audit.
         customerCategory: { $ref: "#/components/schemas/CustomerCategory" }
         number: { type: [string, "null"], example: 12/A, description: "null for dry runs" }
         ficDocumentId: { type: [integer, "null"], description: "null for dry runs" }
@@ -285,6 +290,7 @@ components:
           properties:
             sentAt: { type: [string, "null"], format: date-time }
             error: { type: [string, "null"] }
+        deletedAt: { type: [string, "null"], format: date-time, description: Set when status is DELETED. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 

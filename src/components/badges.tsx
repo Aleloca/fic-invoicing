@@ -8,6 +8,6 @@ export function ConnectionBadge({ tenant }: { tenant: Pick<Tenant, "accessTokenE
 }
 
 export function StatusBadge({ status }: { status: InvoiceStatus }) {
-  const tone = status === "ISSUED" ? "ok" : status === "FAILED" ? "danger" : "warn";
+  const tone = status === "ISSUED" ? "ok" : status === "FAILED" ? "danger" : status === "DELETED" ? "muted" : "warn";
   return <span className={`badge ${tone}`}>{status}</span>;
 }

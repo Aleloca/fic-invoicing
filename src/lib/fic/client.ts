@@ -227,6 +227,20 @@ export async function computeIssuedDocumentTotals(
   };
 }
 
+/**
+ * Deletes an issued document. Returns false when FIC answers 404 (already deleted).
+ * FIC refuses to delete e-invoices already sent to SDI.
+ */
+export async function deleteIssuedDocument(token: string, companyId: number, documentId: number): Promise<boolean> {
+  try {
+    await ficRequest(`/c/${companyId}/issued_documents/${documentId}`, { method: "DELETE", token });
+    return true;
+  } catch (error) {
+    if (error instanceof FicHttpError && error.status === 404) return false;
+    throw error;
+  }
+}
+
 /** Asks FIC to transmit an existing e-invoice to SDI. */
 export async function sendEInvoice(token: string, companyId: number, documentId: number): Promise<void> {
   await ficRequest(`/c/${companyId}/issued_documents/${documentId}/e_invoice/send`, {

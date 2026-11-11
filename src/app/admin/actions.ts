@@ -13,7 +13,7 @@ import { ApiError } from "@/lib/errors";
 import { buildAuthorizeUrl, listUserCompanies } from "@/lib/fic/client";
 import { getFicAccess } from "@/lib/fic/tokens";
 import { CUSTOMER_CATEGORIES, FISCAL_REGIMES, STAMP_DUTY_MODES } from "@/lib/fiscal/types";
-import { retryInvoice } from "@/lib/invoices/service";
+import { deleteInvoice, retryInvoice } from "@/lib/invoices/service";
 import { createOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
 import { RateLimiter } from "@/lib/rate-limit";
@@ -194,6 +194,19 @@ export async function retryInvoiceAction(tenantId: string, invoiceId: string): P
     if (invoice.status === "FAILED") notice = "retry_failed";
   } catch (error) {
     notice = error instanceof ApiError ? `retry_error:${error.code}` : "retry_error";
+  }
+  redirect(`/admin/tenants/${tenantId}/invoices?notice=${encodeURIComponent(notice)}`);
+}
+
+export async function deleteInvoiceAction(tenantId: string, invoiceId: string): Promise<void> {
+  await requireAdmin();
+  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  let notice = "deleted";
+  try {
+    await deleteInvoice(tenant, invoiceId);
+  } catch (error) {
+    if (!(error instanceof ApiError)) console.error("[fic-invoicing] unexpected error while deleting invoice", invoiceId, error);
+    notice = error instanceof ApiError ? `delete_error:${error.code}:${error.message}` : "delete_error";
   }
   redirect(`/admin/tenants/${tenantId}/invoices?notice=${encodeURIComponent(notice)}`);
 }
