@@ -14,6 +14,8 @@ Your app sends the customer's billing data with every request; the service build
 payload (fiscal statements, stamp duty, B2C/B2B routing, country names), calls Fatture in Cloud, and keeps
 an idempotent record of what happened.
 
+Website: <https://aleloca.github.io/fic-invoicing/>
+
 > **Not tax advice.** The fiscal statements, stamp duty rule and VAT handling shipped here are common
 > setups for Italian sole traders. Your situation may differ. Verify every statement and setting with your
 > accountant (commercialista) before you send real invoices, and keep projects in dry-run mode until then.
@@ -282,6 +284,10 @@ The customer data then lives in Fatture in Cloud, as with any e-invoice.
 - **SDI.** Creating an e-invoice in Fatture in Cloud does not transmit it. Enable *Send to SDI* on the company (or per project), or send them from Fatture in Cloud.
 
 ## Development
+
+The public website is the home page exported as a static site: `SITE_BUILD=github npx next build` writes it to
+`out/` (only `*.site.tsx` routes, base path `/fic-invoicing`, no admin links). The *GitHub Pages* workflow
+publishes it on every push to `main`.
 
 ```bash
 npm ci
