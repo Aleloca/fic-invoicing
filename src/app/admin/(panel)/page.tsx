@@ -4,6 +4,7 @@ import { ArrowRight, Plus } from "@/components/icons";
 import { Notice, Notices } from "@/components/notices";
 import { SetupLine, setupProgress } from "@/components/setup-line";
 import { labelEn, periodFromCode } from "@/lib/appstore/calendar";
+import { productProject } from "@/lib/appstore/apps";
 import type { ReportLine } from "@/lib/appstore/report";
 import { prisma } from "@/lib/prisma";
 import { PROJECT_INCLUDE } from "@/lib/projects/config";
@@ -12,7 +13,7 @@ export const metadata: Metadata = { title: "Projects" };
 
 export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
-  const [projects, failed, appStoreReady, unassignedProducts] = await Promise.all([
+  const [projects, failed, appStoreReady, appleProducts] = await Promise.all([
     prisma.project.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -28,21 +29,25 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
       select: {
         period: true,
         lines: true,
-        account: { select: { id: true, products: { select: { appleId: true, projectId: true } } } },
+        account: { select: { id: true } },
       },
     }),
-    prisma.appleProduct.findMany({ where: { projectId: null }, select: { accountId: true } }),
+    prisma.appleProduct.findMany({
+      include: { project: { select: { name: true } }, app: { include: { project: { select: { name: true } } } } },
+    }),
   ]);
+  const unassignedProducts = appleProducts.filter((p) => !productProject(p));
   // A report ready on an Apple account is flagged on every project whose products it sells.
   const readyBy = new Map<string, { accountId: string; months: string[] }>();
   for (const r of appStoreReady) {
     const sold = new Set((r.lines as unknown as ReportLine[]).map((l) => l.appleId));
-    for (const product of r.account.products) {
-      if (!product.projectId || !sold.has(product.appleId)) continue;
-      const entry = readyBy.get(product.projectId) ?? { accountId: r.account.id, months: [] };
+    for (const product of appleProducts) {
+      const projectId = productProject(product)?.projectId;
+      if (product.accountId !== r.account.id || !projectId || !sold.has(product.appleId)) continue;
+      const entry = readyBy.get(projectId) ?? { accountId: r.account.id, months: [] };
       const month = labelEn(periodFromCode(r.period));
       if (!entry.months.includes(month)) entry.months.push(month);
-      readyBy.set(product.projectId, entry);
+      readyBy.set(projectId, entry);
     }
   }
   const failedBy = new Map(failed.map((f) => [f.projectId, f._count._all]));
@@ -64,9 +69,8 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
       <Notices error={error} />
       {unassignedProducts.length > 0 && (
         <Notice tone="warn">
-          {unassignedProducts.length} Apple {unassignedProducts.length === 1 ? "product has" : "products have"} no project yet:{" "}
-          <Link href={`/admin/apple/${unassignedProducts[0].accountId}#products`}>assign {unassignedProducts.length === 1 ? "it" : "them"}</Link>{" "}
-          to invoice Apple.
+          Some Apple apps or products have no project yet:{" "}
+          <Link href={`/admin/apple/${unassignedProducts[0].accountId}#products`}>assign them</Link> to invoice Apple.
         </Notice>
       )}
 

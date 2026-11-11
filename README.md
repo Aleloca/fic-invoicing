@@ -129,8 +129,10 @@ default) from the App Store financial reports: *Apple* in the admin.
 - An **Apple account** is one App Store Connect account; its apps can belong to different projects. Create a **team
   API key with the Finance role** (*Users and Access → Integrations → App Store Connect API*) and enter the issuer
   id, key id, vendor number and the `.p8` file (stored encrypted), and the Fatture in Cloud company Apple pays.
-- Products appear with the first report that sells them (for an in-app purchase, the purchase). Assign each to its
-  project once; a project named by the SKU or title is proposed.
+- **Apps** are assigned to projects, once (a project with a matching name is proposed). The service reads the apps
+  from App Store Connect and links every product of the reports to its app: a paid app is its own product, an
+  in-app purchase gets its parent app from the monthly Sales and Trends reports. Both work with the Finance key. A
+  product whose app cannot be found is assigned to a project directly.
 - Every 6 hours (`APPSTORE_POLL`, on by default) the service asks Apple for the reports of the ended fiscal months.
   Apple's fiscal months follow its 5-4-4 week calendar; a month without sales has no report.
 - A new report shows up on the projects list and on the account page, with the proceeds per product and currency and

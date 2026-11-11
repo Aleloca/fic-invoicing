@@ -2,7 +2,8 @@
  * Looks for new App Store financial reports and stores them with a euro estimate.
  */
 import type { AppleAccount, Prisma } from "@prisma/client";
-import { decrypt } from "../crypto";
+import { syncApps } from "./apps";
+import { credentialsOf } from "./credentials";
 import { todayInItaly } from "../fiscal/payload";
 import { prisma } from "../prisma";
 import { lastEndedPeriod, nextCode, periodFromCode, previousCode } from "./calendar";
@@ -14,14 +15,6 @@ import { parseFinancialReport } from "./report";
 const NO_SALES_AFTER_DAYS = 60;
 const DAY = 24 * 60 * 60 * 1000;
 
-export function credentialsOf(account: AppleAccount): AppStoreCredentials {
-  return {
-    issuerId: account.issuerId,
-    keyId: account.keyId,
-    privateKey: decrypt(account.privateKeyEnc),
-    vendorNumber: account.vendorNumber,
-  };
-}
 
 /** Stores the report of a period with the ECB rates of today. Returns false when Apple has none. */
 async function importPeriod(account: AppleAccount, credentials: AppStoreCredentials, code: string, today: string): Promise<boolean> {
@@ -106,6 +99,12 @@ export async function checkAccount(accountId: string, now: Date = new Date()): P
       where: { id: accountId },
       data: { nextPeriod: next, lastCheckedAt: now, lastError: null },
     });
+    // New products: find their app, so they follow its project.
+    if (found.length > 0) {
+      await syncApps(accountId, now).catch((error) =>
+        console.warn("[fic-invoicing] could not link Apple products to apps", error instanceof Error ? error.message : error),
+      );
+    }
   } catch (error) {
     await prisma.appleAccount.update({
       where: { id: accountId },

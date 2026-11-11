@@ -24,6 +24,7 @@ import {
   retryAppleInvoice,
   retryInvoice,
 } from "@/lib/invoices/service";
+import { productsWithProjects, syncApps } from "@/lib/appstore/apps";
 import { groupReport } from "@/lib/appstore/groups";
 import type { ReportLine } from "@/lib/appstore/report";
 import { createOAuthState } from "@/lib/oauth-state";
@@ -422,8 +423,8 @@ export async function saveAppleAccountAction(accountId: string | null, formData:
     appleBack(existing.id, "notice", "apple_saved");
   }
   const created = await prisma.appleAccount.create({ data });
-  // Products sold so far, so they can be assigned to projects before the first report.
-  await discoverProducts(created.id).catch((error) =>
+  // Apps and products sold so far, so apps can be assigned to projects before the first report.
+  await loadAppsAndProducts(created.id).catch((error) =>
     console.warn("[fic-invoicing] could not read past Apple reports", error instanceof Error ? error.message : error),
   );
   appleBack(created.id, "notice", "apple_connected");
@@ -440,29 +441,42 @@ export async function checkAppleAccountAction(accountId: string): Promise<void> 
   appleBack(accountId, "notice", found.length > 0 ? "apple_found" : "apple_nothing_new");
 }
 
-/** Reads the products of the past reports, so they can be assigned before the next report. */
-export async function discoverAppleProductsAction(accountId: string): Promise<void> {
-  await requireAdmin();
-  let found = 0;
-  try {
-    found = await discoverProducts(accountId);
-  } catch (error) {
-    appleBack(accountId, "error", `Could not read the past reports: ${error instanceof Error ? error.message : "unknown error"}`);
-  }
-  appleBack(accountId, "notice", found > 0 ? "apple_products_found" : "apple_products_none");
+/** The account's apps, the products of the last two years of reports, and which app each belongs to. */
+async function loadAppsAndProducts(accountId: string): Promise<void> {
+  await discoverProducts(accountId);
+  await syncApps(accountId);
 }
 
-/** Assigns the account's products to projects: one `product_<id>` field per product (empty = unassigned). */
+export async function discoverAppleProductsAction(accountId: string): Promise<void> {
+  await requireAdmin();
+  try {
+    await loadAppsAndProducts(accountId);
+  } catch (error) {
+    appleBack(accountId, "error", `Could not read apps and reports: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+  appleBack(accountId, "notice", "apple_products_found");
+}
+
+/**
+ * Assigns apps (`app_<id>`) and products without an app (`product_<id>`) to projects; an empty
+ * value leaves it unassigned.
+ */
 export async function assignAppleProductsAction(accountId: string, formData: FormData): Promise<void> {
   await requireAdmin();
-  const products = await prisma.appleProduct.findMany({ where: { accountId }, select: { id: true } });
   const projectIds = new Set((await prisma.project.findMany({ select: { id: true } })).map((p) => p.id));
-  for (const product of products) {
-    const value = formData.get(`product_${product.id}`);
-    if (value === null) continue;
-    const projectId = String(value);
-    if (projectId && !projectIds.has(projectId)) continue;
-    await prisma.appleProduct.update({ where: { id: product.id }, data: { projectId: projectId || null } });
+  const valueOf = (name: string): string | null | undefined => {
+    const value = formData.get(name);
+    if (value === null) return undefined;
+    const id = String(value);
+    return id && projectIds.has(id) ? id : id ? undefined : null;
+  };
+  for (const app of await prisma.appleApp.findMany({ where: { accountId }, select: { id: true } })) {
+    const projectId = valueOf(`app_${app.id}`);
+    if (projectId !== undefined) await prisma.appleApp.update({ where: { id: app.id }, data: { projectId } });
+  }
+  for (const product of await prisma.appleProduct.findMany({ where: { accountId }, select: { id: true } })) {
+    const projectId = valueOf(`product_${product.id}`);
+    if (projectId !== undefined) await prisma.appleProduct.update({ where: { id: product.id }, data: { projectId } });
   }
   appleBack(accountId, "notice", "apple_products_saved");
 }
@@ -481,8 +495,7 @@ export async function issueAppleInvoiceAction(accountId: string, reportId: strin
   if (!account) redirect("/admin/apple");
   const report = await prisma.appStoreReport.findFirst({ where: { id: reportId, accountId } });
   if (!report) appleBack(accountId, "error", "Report not found.");
-  const products = await prisma.appleProduct.findMany({ where: { accountId }, include: { project: { select: { name: true } } } });
-  const groups = groupReport(report.lines as unknown as ReportLine[], products, undefined);
+  const groups = groupReport(report.lines as unknown as ReportLine[], await productsWithProjects(accountId), undefined);
   if (groups.unassigned.length > 0) appleBack(accountId, "error", "Assign every product of the report to a project first.");
 
   const lines = [];

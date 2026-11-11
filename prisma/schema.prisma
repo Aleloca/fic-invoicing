@@ -154,6 +154,7 @@ model Project {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   invoices      Invoice[]
+  appleApps     AppleApp[]
   appleProducts AppleProduct[]
 
   @@index([companyId])
@@ -234,6 +235,7 @@ model AppleAccount {
   lastError        String?          @db.Text
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
+  apps             AppleApp[]
   products         AppleProduct[]
   reports          AppStoreReport[]
   invoices         Invoice[]
@@ -241,8 +243,29 @@ model AppleAccount {
   @@map("apple_accounts")
 }
 
+/// An app of an Apple account (from the App Store Connect API), and the project it belongs to.
+model AppleApp {
+  id        String         @id @default(cuid())
+  accountId String
+  account   AppleAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// Apple app id.
+  appleId   String
+  sku       String
+  name      String
+  projectId String?
+  project   Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  products  AppleProduct[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([accountId, appleId])
+  @@index([projectId])
+  @@map("apple_apps")
+}
+
 /// A product sold through an Apple account, as named in its reports (for an in-app purchase, the
-/// purchase, not the app), and the project it belongs to.
+/// purchase, not the app). It belongs to the project of its app; a product whose app is unknown
+/// can be assigned to a project directly.
 model AppleProduct {
   id        String       @id @default(cuid())
   accountId String
@@ -252,6 +275,10 @@ model AppleProduct {
   /// "Vendor Identifier" (SKU) of the report.
   sku       String
   title     String
+  /// The app it belongs to: itself for a paid app, the parent app for an in-app purchase.
+  appId     String?
+  app       AppleApp?    @relation(fields: [appId], references: [id], onDelete: SetNull)
+  /// Used only when the app is unknown.
   projectId String?
   project   Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   createdAt DateTime     @default(now())
@@ -259,6 +286,7 @@ model AppleProduct {
 
   @@unique([accountId, appleId])
   @@index([projectId])
+  @@index([appId])
   @@map("apple_products")
 }
 

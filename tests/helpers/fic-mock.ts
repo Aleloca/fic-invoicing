@@ -15,6 +15,10 @@ export interface FicMockOptions {
   companies?: Array<{ id: number; name: string }>;
   /** App Store Connect FINANCIAL reports (TSV) by fiscal period; other periods return 404. */
   appleReports?: Record<string, string>;
+  /** Apps of the Apple account (GET /v1/apps). */
+  appleApps?: Array<{ id: string; name: string; sku: string }>;
+  /** Monthly Sales and Trends summaries (TSV) by calendar month; other months return 404. */
+  appleSales?: Record<string, string>;
   /** ECB reference rates (units per euro) returned for any day. */
   ecbRates?: Record<string, number>;
 }
@@ -96,6 +100,14 @@ export function installFicMock(options: FicMockOptions = {}) {
     if (url.hostname === "api.appstoreconnect.apple.com" && url.pathname === "/v1/financeReports") {
       const tsv = options.appleReports?.[url.searchParams.get("filter[reportDate]") ?? ""];
       if (tsv === undefined) return json(404, { errors: [{ status: "404", code: "NOT_FOUND", title: "The specified resource does not exist" }] });
+      return new Response(new Uint8Array(gzipSync(tsv)), { status: 200, headers: { "Content-Type": "application/a-gzip" } });
+    }
+    if (url.hostname === "api.appstoreconnect.apple.com" && url.pathname === "/v1/apps") {
+      return json(200, { data: (options.appleApps ?? []).map((a) => ({ type: "apps", id: a.id, attributes: { name: a.name, sku: a.sku } })), links: {} });
+    }
+    if (url.hostname === "api.appstoreconnect.apple.com" && url.pathname === "/v1/salesReports") {
+      const tsv = options.appleSales?.[url.searchParams.get("filter[reportDate]") ?? ""];
+      if (tsv === undefined) return json(404, { errors: [{ status: "404", code: "NOT_FOUND" }] });
       return new Response(new Uint8Array(gzipSync(tsv)), { status: 200, headers: { "Content-Type": "application/a-gzip" } });
     }
     if (url.hostname === "data-api.ecb.europa.eu") {
