@@ -93,7 +93,7 @@ paths:
         "200":
           description: |
             An invoice with this idempotency key already exists; it is returned unchanged, whatever its status.
-            Check `status`: a `DELETED` invoice was deleted from Fatture in Cloud by an admin and is not valid.
+            Check `status`: a `DELETED` invoice was deleted by an admin and is not valid.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Invoice" }
@@ -276,7 +276,7 @@ components:
         status:
           type: string
           enum: [PENDING, ISSUED, FAILED, DELETED]
-          description: DELETED means an admin deleted the document from Fatture in Cloud; the row is kept for audit.
+          description: DELETED means an admin deleted the invoice before it was sent to SDI (from Fatture in Cloud too when a document existed); the row is kept for audit.
         customerCategory: { $ref: "#/components/schemas/CustomerCategory" }
         number: { type: [string, "null"], example: 12/A, description: "null for dry runs" }
         ficDocumentId: { type: [integer, "null"], description: "null for dry runs" }

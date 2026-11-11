@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "marked": "^15.0.12",
     "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

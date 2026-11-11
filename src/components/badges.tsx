@@ -31,7 +31,7 @@ export const STATUS_INFO: Record<InvoiceStatus, { label: string; tone: string; m
   DELETED: {
     label: "Deleted",
     tone: "deleted",
-    meaning: "Deleted from Fatture in Cloud by an admin before it was sent to SDI. Kept here for the record.",
+    meaning: "Deleted by an admin before it was sent to SDI, from Fatture in Cloud too when a document existed. Kept for the record.",
   },
 };
 

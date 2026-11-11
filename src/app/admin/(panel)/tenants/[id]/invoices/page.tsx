@@ -4,11 +4,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { STATUS_INFO, StatusLegend } from "@/components/badges";
 import { ArrowLeft } from "@/components/icons";
+import { InvoiceActions, invoiceNotice } from "@/components/invoice-actions";
 import { INVOICE_ROW_SELECT, InvoiceTable } from "@/components/invoice-table";
 import { Notices } from "@/components/notices";
-import { isDeletable } from "@/lib/invoices/service";
 import { prisma } from "@/lib/prisma";
-import { deleteInvoiceAction, retryInvoiceAction } from "../../../../actions";
 
 export const metadata: Metadata = { title: "Invoices" };
 
@@ -29,7 +28,8 @@ export default async function InvoicesPage({
 
   const status = STATUSES.find((s) => s === query.status);
   const page = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
-  const where = { tenantId: tenant.id, ...(status ? { status } : {}) };
+  // "All" leaves deleted invoices out: they only show under their own tab.
+  const where = { tenantId: tenant.id, status: status ?? { not: "DELETED" as const } };
   const [invoices, total, counts] = await Promise.all([
     prisma.invoice.findMany({
       where,
@@ -42,15 +42,8 @@ export default async function InvoicesPage({
     prisma.invoice.groupBy({ by: ["status"], where: { tenantId: tenant.id }, _count: { _all: true } }),
   ]);
   const countBy = new Map(counts.map((c) => [c.status, c._count._all]));
-  const all = counts.reduce((sum, c) => sum + c._count._all, 0);
-
-  const isError = query.notice?.startsWith("retry_error") || query.notice?.startsWith("delete_error");
-  const notice = isError ? undefined : query.notice;
-  const error = !isError
-    ? undefined
-    : query.notice!.startsWith("retry_error")
-      ? `Retry refused (${query.notice})`
-      : `Delete refused: ${query.notice!.split(":").slice(1).join(":") || "unexpected error, check the server logs"}`;
+  const all = counts.filter((c) => c.status !== "DELETED").reduce((sum, c) => sum + c._count._all, 0);
+  const { notice, error } = invoiceNotice(query.notice);
   const base = `/admin/tenants/${tenant.id}/invoices`;
   const href = (s?: InvoiceStatus, p?: number) => {
     const qs = new URLSearchParams();
@@ -73,7 +66,7 @@ export default async function InvoicesPage({
             Filter by period
           </Link>
         </div>
-        <p className="sub">Every request {tenant.name} sent, newest first. Failed invoices can be retried here.</p>
+        <p className="sub">Every request {tenant.name} sent, newest first. Failed invoices can be retried, and anything not sent to SDI can be deleted.</p>
       </div>
       <Notices notice={notice} error={error} />
 
@@ -100,39 +93,9 @@ export default async function InvoicesPage({
       ) : (
         <InvoiceTable
           invoices={invoices}
-          actions={(inv) => {
-            const sdiRetry = inv.status === "ISSUED" && inv.sdiError && !inv.sdiSentAt;
-            const canRetry = inv.status === "FAILED" || sdiRetry;
-            const canDelete = isDeletable(inv);
-            if (!canRetry && !canDelete) return null;
-            return (
-              <div className="row-actions">
-                {canRetry && (
-                  <form action={retryInvoiceAction.bind(null, tenant.id, inv.id)}>
-                    <button type="submit" className="btn small">
-                      {sdiRetry ? "Resend to SDI" : "Retry"}
-                    </button>
-                  </form>
-                )}
-                {canDelete && (
-                  <details className="confirm">
-                    <summary className="btn small danger">Delete</summary>
-                    <div className="confirm-box">
-                      <p>
-                        Deletes document {inv.ficNumber ?? `#${inv.ficDocumentId}`} from Fatture in Cloud. Deleting an
-                        invoice that is not the latest of its numeration leaves a gap in the numbering.
-                      </p>
-                      <form action={deleteInvoiceAction.bind(null, tenant.id, inv.id)}>
-                        <button type="submit" className="btn small danger solid">
-                          Confirm delete
-                        </button>
-                      </form>
-                    </div>
-                  </details>
-                )}
-              </div>
-            );
-          }}
+          actions={(inv) => (
+            <InvoiceActions inv={inv} tenantId={tenant.id} returnTo={href(status, page)} />
+          )}
         />
       )}
 

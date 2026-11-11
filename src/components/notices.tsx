@@ -5,7 +5,7 @@ const NOTICES: Record<string, string> = {
   connected: "Fatture in Cloud connected.",
   disconnected: "Fatture in Cloud disconnected.",
   retried: "Invoice retried.",
-  deleted: "Invoice deleted from Fatture in Cloud. The row is kept with status Deleted.",
+  deleted: "Invoice deleted. The row is kept with status Deleted, under the Deleted tab.",
   retry_failed: "The retry reached Fatture in Cloud, which returned an error: see the invoice row.",
 };
 

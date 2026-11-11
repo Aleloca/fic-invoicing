@@ -79,6 +79,14 @@ export function External(props: IconProps) {
   );
 }
 
+export function Download(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3v12M6 10l6 6 6-6M4 21h16" />
+    </Icon>
+  );
+}
+
 export function Copy(props: IconProps) {
   return (
     <Icon {...props}>

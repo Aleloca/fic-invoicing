@@ -302,34 +302,41 @@ async function retrySdiSend(tenant: Tenant, invoice: Invoice): Promise<Invoice> 
   }
 }
 
-/** Whether an invoice can be deleted from Fatture in Cloud: a real document not sent to SDI. */
-export function isDeletable(invoice: Pick<Invoice, "status" | "ficDocumentId" | "sdiSentAt">): boolean {
-  return invoice.status === "ISSUED" && invoice.ficDocumentId !== null && invoice.sdiSentAt === null;
+/**
+ * Whether an admin can delete an invoice: anything not sent to SDI, except rows still
+ * being processed (PENDING) and rows already deleted.
+ */
+export function isDeletable(invoice: Pick<Invoice, "status" | "sdiSentAt">): boolean {
+  return (invoice.status === "ISSUED" || invoice.status === "FAILED") && invoice.sdiSentAt === null;
 }
 
 /**
- * Deletes the invoice's document from Fatture in Cloud and marks the row DELETED.
- * The row, number and document id are kept for audit. A FIC 404 counts as already deleted.
- * Deleting an invoice that is not the latest of its numeration leaves a gap in the numbering.
+ * Deletes an invoice and marks the row DELETED. When a document exists in Fatture in Cloud
+ * it is deleted there first (a FIC 404 counts as already deleted); dry runs and failed
+ * invoices have no document, so only the row changes. The row, number and document id are
+ * kept for audit. Deleting an invoice that is not the latest of its numeration leaves a gap
+ * in the numbering.
  */
 export async function deleteInvoice(tenant: Tenant, id: string): Promise<Invoice> {
   const invoice = await findTenantInvoice(tenant.id, id);
   if (invoice.status === "DELETED") return invoice;
-  if (invoice.status !== "ISSUED" || invoice.ficDocumentId === null) {
-    throw new ApiError(409, "conflict", "Only issued invoices with a document in Fatture in Cloud can be deleted");
-  }
   if (invoice.sdiSentAt !== null) {
     throw new ApiError(409, "conflict", "This invoice was sent to SDI: it cannot be deleted, issue a credit note instead");
   }
-  assertTenantReady(tenant);
+  if (invoice.status === "PENDING") {
+    throw new ApiError(409, "conflict", "This invoice is still being processed: wait until it is issued or failed");
+  }
 
-  const access = await getFicAccess(tenant.id);
-  if (!access.companyId) throw new ApiError(409, "fic_not_connected", "No Fatture in Cloud company selected");
-  try {
-    await deleteIssuedDocument(access.accessToken, access.companyId, invoice.ficDocumentId);
-  } catch (error) {
-    if (error instanceof FicHttpError) throw new ApiError(502, "fic_error", error.message);
-    throw error;
+  if (invoice.ficDocumentId !== null) {
+    assertTenantReady(tenant);
+    const access = await getFicAccess(tenant.id);
+    if (!access.companyId) throw new ApiError(409, "fic_not_connected", "No Fatture in Cloud company selected");
+    try {
+      await deleteIssuedDocument(access.accessToken, access.companyId, invoice.ficDocumentId);
+    } catch (error) {
+      if (error instanceof FicHttpError) throw new ApiError(502, "fic_error", error.message);
+      throw error;
+    }
   }
 
   return prisma.invoice.update({

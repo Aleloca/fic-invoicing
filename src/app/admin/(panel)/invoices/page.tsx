@@ -2,7 +2,9 @@ import type { InvoiceStatus, Prisma } from "@prisma/client";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { STATUS_INFO, StatusLegend } from "@/components/badges";
+import { InvoiceActions, invoiceNotice } from "@/components/invoice-actions";
 import { INVOICE_ROW_SELECT, InvoiceTable } from "@/components/invoice-table";
+import { Notices } from "@/components/notices";
 import { euros } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
@@ -52,7 +54,14 @@ function presets(): { label: string; from: string; to: string }[] {
 export default async function AllInvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; tenant?: string; from?: string; to?: string; page?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    tenant?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+    notice?: string;
+  }>;
 }) {
   const query = await searchParams;
   const tenants = await prisma.tenant.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
@@ -69,7 +78,8 @@ export default async function AllInvoicesPage({
       ? { createdAt: { ...(from ? { gte: romeMidnight(from) } : {}), ...(to ? { lt: romeMidnight(nextDay(to)) } : {}) } }
       : {}),
   };
-  const where: Prisma.InvoiceWhereInput = { ...scope, ...(status ? { status } : {}) };
+  // "All" leaves deleted invoices out: they only show under their own tab.
+  const where: Prisma.InvoiceWhereInput = { ...scope, status: status ?? { not: "DELETED" } };
 
   const [invoices, total, counts, issued] = await Promise.all([
     prisma.invoice.findMany({
@@ -88,7 +98,8 @@ export default async function AllInvoicesPage({
     }),
   ]);
   const countBy = new Map(counts.map((c) => [c.status, c._count._all]));
-  const all = counts.reduce((sum, c) => sum + c._count._all, 0);
+  const all = counts.filter((c) => c.status !== "DELETED").reduce((sum, c) => sum + c._count._all, 0);
+  const { notice, error } = invoiceNotice(query.notice);
 
   const href = (over: Partial<Record<"status" | "tenant" | "from" | "to" | "page", string | undefined>>) => {
     const values = { status, tenant: tenantId, from, to, page: undefined as string | undefined, ...over };
@@ -104,9 +115,10 @@ export default async function AllInvoicesPage({
       <div className="page-head">
         <h1>Invoices</h1>
         <p className="sub">
-          Every invoice of every tenant. Filter by tenant and period; retry or delete from the tenant&apos;s own list.
+          Every invoice of every tenant. Filter by tenant and period. Anything not sent to SDI can be deleted.
         </p>
       </div>
+      <Notices notice={notice} error={error} />
 
       <form method="get" action="/admin/invoices" className="filters">
         {status && <input type="hidden" name="status" value={status} />}
@@ -188,7 +200,15 @@ export default async function AllInvoicesPage({
           )}
         </div>
       ) : (
-        <InvoiceTable invoices={invoices} showTenant />
+        <InvoiceTable
+          invoices={invoices}
+          showTenant
+          actions={(inv) =>
+            inv.tenant ? (
+              <InvoiceActions inv={inv} tenantId={inv.tenant.id} returnTo={href({ page: page > 1 ? String(page) : undefined })} />
+            ) : null
+          }
+        />
       )}
 
       {(page > 1 || page * PAGE_SIZE < total) && (
