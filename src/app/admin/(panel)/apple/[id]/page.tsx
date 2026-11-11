@@ -12,6 +12,7 @@ import { labelEn, periodFromCode } from "@/lib/appstore/calendar";
 import { companyChoices } from "@/lib/appstore/companies";
 import type { EcbRates } from "@/lib/appstore/ecb";
 import { groupReport, lineEuroCents, suggestProject } from "@/lib/appstore/groups";
+import { productsWithProjects } from "@/lib/appstore/apps";
 import { appStoreDescription } from "@/lib/appstore/payload";
 import type { ReportLine } from "@/lib/appstore/report";
 import { todayInItaly } from "@/lib/fiscal/payload";
@@ -55,11 +56,7 @@ export default async function AppleAccountPage({
       orderBy: { period: "desc" },
       include: { invoice: { select: { id: true, status: true, ficNumber: true, amountCents: true, errorMessage: true, dryRun: true } } },
     }),
-    prisma.appleProduct.findMany({
-      where: { accountId: account.id },
-      orderBy: { title: "asc" },
-      include: { project: { select: { id: true, name: true } } },
-    }),
+    productsWithProjects(account.id),
     prisma.project.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } }),
     prisma.invoice.findMany({
       where: { appleAccountId: account.id },
@@ -72,7 +69,10 @@ export default async function AppleAccountPage({
   const lookups = await loadLookups(account.company && connectionState({ company: account.company }) === "ready" ? account.company : null);
   const open = reports.filter((r) => r.status === "READY");
   const done = reports.filter((r) => r.status !== "READY");
+  const apps = await prisma.appleApp.findMany({ where: { accountId: account.id }, orderBy: { name: "asc" } });
+  const orphans = products.filter((p) => !p.appId).sort((a, b) => a.title.localeCompare(b.title));
   const unassigned = products.filter((p) => !p.projectId);
+  const unassignedApps = apps.filter((a) => !a.projectId && products.some((p) => p.appId === a.id));
   const today = todayInItaly();
   const { notice, error } = query.notice?.startsWith("retry") || query.notice?.startsWith("delete") ? { ...invoiceNotice(query.notice), error: query.error } : query;
 
@@ -158,8 +158,8 @@ export default async function AppleAccountPage({
                   </header>
                   {groups.unassigned.length > 0 && (
                     <Notice tone="warn" className="inline">
-                      Assign {[...new Set(groups.unassigned.map((l) => `“${l.title || l.sku || l.appleId}”`))].join(", ")} to a project in{" "}
-                      <a href="#products">Products</a> to invoice this report.
+                      Assign the app of {[...new Set(groups.unassigned.map((l) => `“${l.title || l.sku || l.appleId}”`))].join(", ")} to a project
+                      in <a href="#products">Apps</a> to invoice this report.
                     </Notice>
                   )}
                   <div className="table-wrap">
@@ -271,43 +271,42 @@ export default async function AppleAccountPage({
       </section>
 
       <section className="section" id="products">
-        <SectionHead title="Products">
-          What the reports sell, and the project each belongs to. For in-app purchases Apple names the purchase, not the
-          app. Assigned once, remembered: assign them before the next report.
+        <SectionHead title="Apps">
+          Assign each app to its project, once. Its products, in-app purchases included, follow it: the app of each
+          product comes from App Store Connect.
         </SectionHead>
         <div className="section-body">
           <form action={discoverAppleProductsAction.bind(null, account.id)}>
             <button type="submit" className="btn secondary small">
-              Load products from past reports
+              Load apps and products
             </button>
           </form>
-          {products.length === 0 ? (
-            <p className="hint">
-              No product yet. Load them from the reports of the last two years, or they appear with the next report.
-            </p>
+          {apps.length === 0 && orphans.length === 0 ? (
+            <p className="hint">Nothing yet. Load the apps and the products sold in the last two years.</p>
           ) : (
             <form action={assignAppleProductsAction.bind(null, account.id)}>
-              {unassigned.length > 0 && (
+              {(unassignedApps.length > 0 || unassigned.length > 0) && (
                 <Notice tone="warn" className="inline">
-                  {unassigned.length} {unassigned.length === 1 ? "product needs" : "products need"} a project. A proposed one
-                  is preselected when the SKU or title names it: check it and save.
+                  Some apps or products sell without a project. A project whose name matches is proposed: check it and
+                  save.
                 </Notice>
               )}
               <ul className="usage">
-                {products.map((p) => {
-                  const suggested = p.projectId ? null : suggestProject(p, projects);
+                {apps.map((app) => {
+                  const sold = products.filter((p) => p.appId === app.id);
+                  const suggested = app.projectId ? null : suggestProject({ sku: app.sku, title: app.name }, projects);
                   return (
-                    <li key={p.id} className="product-row">
+                    <li key={app.id} className="product-row">
                       <span>
-                        <strong>{p.title || p.sku}</strong>
+                        <strong>{app.name}</strong>
                         <span className="cell-sub">
-                          <code>{p.sku}</code> · Apple ID {p.appleId}
+                          {sold.length > 0 ? sold.map((p) => p.title || p.sku).join(", ") : "No sales in the reports read"}
                         </span>
                       </span>
-                      <label className="visually-hidden" htmlFor={`product_${p.id}`}>
-                        Project of {p.title || p.sku}
+                      <label className="visually-hidden" htmlFor={`app_${app.id}`}>
+                        Project of {app.name}
                       </label>
-                      <select id={`product_${p.id}`} name={`product_${p.id}`} defaultValue={p.projectId ?? suggested?.id ?? ""}>
+                      <select id={`app_${app.id}`} name={`app_${app.id}`} defaultValue={app.projectId ?? suggested?.id ?? ""}>
                         <option value="">Not assigned</option>
                         {projects.map((project) => (
                           <option key={project.id} value={project.id}>
@@ -320,8 +319,41 @@ export default async function AppleAccountPage({
                   );
                 })}
               </ul>
+              {orphans.length > 0 && (
+                <>
+                  <h3 className="subhead">Products without an app</h3>
+                  <p className="hint">App Store Connect did not say which app these belong to: assign them directly.</p>
+                  <ul className="usage">
+                    {orphans.map((p) => {
+                      const suggested = p.projectId ? null : suggestProject(p, projects);
+                      return (
+                        <li key={p.id} className="product-row">
+                          <span>
+                            <strong>{p.title || p.sku}</strong>
+                            <span className="cell-sub">
+                              <code>{p.sku}</code> · Apple ID {p.appleId}
+                            </span>
+                          </span>
+                          <label className="visually-hidden" htmlFor={`product_${p.id}`}>
+                            Project of {p.title || p.sku}
+                          </label>
+                          <select id={`product_${p.id}`} name={`product_${p.id}`} defaultValue={p.projectId ?? suggested?.id ?? ""}>
+                            <option value="">Not assigned</option>
+                            {projects.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                                {suggested?.id === project.id ? " (proposed)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
               <div className="form-foot" style={{ paddingTop: 16 }}>
-                <button type="submit" className={`btn${unassigned.length ? "" : " secondary"}`}>
+                <button type="submit" className={`btn${unassignedApps.length || unassigned.length ? "" : " secondary"}`}>
                   Save projects
                 </button>
               </div>

@@ -77,3 +77,77 @@ export async function downloadFinancialReport(credentials: AppStoreCredentials, 
     return body.toString("utf8");
   }
 }
+
+export interface AppleAppInfo {
+  appleId: string;
+  sku: string;
+  name: string;
+}
+
+async function getJson<T>(credentials: AppStoreCredentials, url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${appStoreToken(credentials)}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    cache: "no-store",
+  });
+  const text = await response.text();
+  if (!response.ok) throw new AppStoreError(response.status, describe(response.status, text));
+  return JSON.parse(text) as T;
+}
+
+/** Every app of the account. Works with a Finance key. */
+export async function listApps(credentials: AppStoreCredentials): Promise<AppleAppInfo[]> {
+  const apps: AppleAppInfo[] = [];
+  let next: string | undefined = `${BASE_URL}/v1/apps?limit=200&fields[apps]=name,sku`;
+  while (next) {
+    const page: {
+      data: Array<{ id: string; attributes?: { name?: string; sku?: string } }>;
+      links?: { next?: string };
+    } = await getJson(credentials, next);
+    for (const app of page.data) apps.push({ appleId: app.id, sku: app.attributes?.sku ?? "", name: app.attributes?.name ?? app.id });
+    next = page.links?.next;
+  }
+  return apps;
+}
+
+/**
+ * The monthly Sales and Trends summary of a calendar month (YYYY-MM), as TSV; null when there is
+ * none. Its "Parent Identifier" column names the app (by SKU) an in-app purchase belongs to.
+ */
+export async function downloadMonthlySalesReport(credentials: AppStoreCredentials, month: string): Promise<string | null> {
+  const url = new URL("/v1/salesReports", BASE_URL);
+  url.searchParams.set("filter[reportType]", "SALES");
+  url.searchParams.set("filter[reportSubType]", "SUMMARY");
+  url.searchParams.set("filter[frequency]", "MONTHLY");
+  url.searchParams.set("filter[reportDate]", month);
+  url.searchParams.set("filter[vendorNumber]", credentials.vendorNumber);
+  url.searchParams.set("filter[version]", "1_0");
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${appStoreToken(credentials)}`, Accept: "application/a-gzip" },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    cache: "no-store",
+  });
+  const body = Buffer.from(await response.arrayBuffer());
+  if (response.status === 404) return null;
+  if (!response.ok) throw new AppStoreError(response.status, describe(response.status, body.toString("utf8")));
+  try {
+    return gunzipSync(body).toString("utf8");
+  } catch {
+    return body.toString("utf8");
+  }
+}
+
+/** Apple Identifier → Parent Identifier (app SKU) of the in-app purchases in a sales report. */
+export function parentsFromSalesReport(tsv: string): Map<string, string> {
+  const [head, ...rows] = tsv.split(/\r?\n/);
+  const columns = (head ?? "").split("\t").map((c) => c.trim().toLowerCase());
+  const id = columns.indexOf("apple identifier");
+  const parent = columns.indexOf("parent identifier");
+  const parents = new Map<string, string>();
+  if (id < 0 || parent < 0) return parents;
+  for (const row of rows) {
+    const cells = row.split("\t").map((c) => c.trim());
+    if (cells[id] && cells[parent]) parents.set(cells[id], cells[parent]);
+  }
+  return parents;
+}

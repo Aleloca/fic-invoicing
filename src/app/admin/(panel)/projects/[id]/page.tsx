@@ -40,11 +40,19 @@ export default async function ProjectPage({
   const missing = missingConfiguration(resolved.invoice);
   const progress = setupProgress(project);
   const lookups = await loadLookups(state === "ready" ? company : null);
-  const appleProducts = await prisma.appleProduct.findMany({
-    where: { projectId: project.id },
-    orderBy: { title: "asc" },
-    include: { account: { select: { id: true, label: true } } },
-  });
+  // Apple apps of this project, and products assigned directly (their app is unknown).
+  const appleItems = [
+    ...(await prisma.appleApp.findMany({
+      where: { projectId: project.id },
+      orderBy: { name: "asc" },
+      include: { account: { select: { id: true, label: true } } },
+    })).map((a) => ({ id: a.id, name: a.name, account: a.account })),
+    ...(await prisma.appleProduct.findMany({
+      where: { projectId: project.id, appId: null },
+      orderBy: { title: "asc" },
+      include: { account: { select: { id: true, label: true } } },
+    })).map((p) => ({ id: p.id, name: p.title || p.sku, account: p.account })),
+  ];
 
   // Projects on the same company with the same effective numeration share one number sequence.
   const siblings = company
@@ -234,19 +242,19 @@ export default async function ProjectPage({
           Apps sold through Apple: Apple pays the account, which is invoiced once a month with a line for this project.
         </SectionHead>
         <div className="section-body">
-          {appleProducts.length > 0 ? (
+          {appleItems.length > 0 ? (
             <ul className="usage">
-              {appleProducts.map((p) => (
+              {appleItems.map((p) => (
                 <li key={p.id}>
-                  <strong>{p.title || p.sku}</strong>
+                  <strong>{p.name}</strong>
                   <Link href={`/admin/apple/${p.account.id}`}>{p.account.label}</Link>
                 </li>
               ))}
             </ul>
           ) : (
             <p className="hint">
-              No Apple product. Connect the App Store Connect account in <Link href="/admin/apple">Apple</Link>: products are
-              assigned to projects there, when they first appear in a report.
+              No Apple app. Connect the App Store Connect account in <Link href="/admin/apple">Apple</Link> and assign its
+              apps to projects there.
             </p>
           )}
         </div>

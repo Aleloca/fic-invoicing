@@ -1,5 +1,6 @@
 import { generateKeyPairSync, verify } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { productsWithProjects, syncApps } from "@/lib/appstore/apps";
 import { checkAccount, discoverProducts, suggestStartPeriod } from "@/lib/appstore/check";
 import { groupReport } from "@/lib/appstore/groups";
 import { APPLE_DISTRIBUTION_INTERNATIONAL } from "@/lib/appstore/payload";
@@ -135,6 +136,38 @@ describe.skipIf(!hasTestDb)("Apple accounts and invoices to Apple (integration)"
     ]);
     expect(await prisma.appStoreReport.count()).toBe(0);
     expect(await discoverProducts(account.id, NOW)).toBe(0);
+  });
+
+  it("links products to their app (paid app itself, in-app purchase via the sales report) so apps carry the project", async () => {
+    const SALES_HEADER = "Provider\tProvider Country\tSKU\tDeveloper\tTitle\tVersion\tProduct Type Identifier\tUnits\tDeveloper Proceeds\tBegin Date\tEnd Date\tCustomer Currency\tCountry Code\tCurrency of Proceeds\tApple Identifier\tCustomer Price\tPromo Code\tParent Identifier";
+    const sales = [SALES_HEADER, "APPLE\tUS\tzentap_pro_unlock\t\tZenTap Pro Unlock\t\tIA1\t1\t0.70\t\t\tUSD\tUS\tUSD\t6760715414\t0.99\t\tcom.app.zentap"].join("\n");
+    const paid = report([["555", "com.app.moonlog", "MoonLog"], 1, "2.10", "USD", "US"]);
+    installFicMock({
+      appleReports: { ...REPORTS, "2026-10": paid },
+      appleApps: [
+        { id: "6760715406", name: "ZenTap - Fidget Toys", sku: "com.app.zentap" },
+        { id: "555", name: "MoonLog", sku: "com.app.moonlog" },
+      ],
+      appleSales: { "2026-09": sales },
+    });
+    const { account, zentap, moonlog } = await setup("2027-01");
+    await discoverProducts(account.id, NOW);
+    // A project assigned by hand to the in-app purchase before apps existed moves to its app.
+    await prisma.appleProduct.update({ where: { accountId_appleId: { accountId: account.id, appleId: "6760715414" } }, data: { projectId: zentap.id } });
+
+    expect(await syncApps(account.id, NOW)).toBe(2);
+
+    const apps = await prisma.appleApp.findMany({ orderBy: { name: "asc" }, include: { products: true } });
+    expect(apps.map((a) => [a.name, a.projectId, a.products.map((p) => p.appleId)])).toEqual([
+      ["MoonLog", null, ["555"]],
+      ["ZenTap - Fidget Toys", zentap.id, ["6760715414"]],
+    ]);
+    // "MoonLog Premium" (777) is in no sales report: it stays without an app.
+    expect((await prisma.appleProduct.findUniqueOrThrow({ where: { accountId_appleId: { accountId: account.id, appleId: "777" } } })).appId).toBeNull();
+
+    await prisma.appleApp.update({ where: { accountId_appleId: { accountId: account.id, appleId: "555" } }, data: { projectId: moonlog.id } });
+    const projects = Object.fromEntries((await productsWithProjects(account.id)).map((p) => [p.appleId, p.project?.name ?? null]));
+    expect(projects).toEqual({ "6760715414": "ZenTap", "555": "MoonLog", "777": null });
   });
 
   it("groups a report by project once products are assigned", async () => {
