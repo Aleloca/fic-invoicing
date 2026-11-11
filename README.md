@@ -1,4 +1,9 @@
-# fic-invoicing
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.svg">
+    <img src="docs/brand/logo.svg" alt="fic-invoicing" height="56">
+  </picture>
+</h1>
 
 A small, self-hostable HTTP service that issues **Italian electronic invoices** (fatture elettroniche)
 through the [Fatture in Cloud](https://www.fattureincloud.it/) API v2, for **several apps at once**.

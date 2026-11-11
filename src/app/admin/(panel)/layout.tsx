@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AdminNav } from "@/components/admin-nav";
+import { BrandMark } from "@/components/brand";
 import { requireAdmin } from "@/lib/admin-session";
 import { logoutAction } from "../actions";
 
@@ -11,6 +12,7 @@ export default async function PanelLayout({ children }: Readonly<{ children: Rea
     <div className="shell">
       <header className="rail">
         <Link href="/admin" className="rail-brand">
+          <BrandMark size={30} />
           fic-invoicing
         </Link>
         <AdminNav />
