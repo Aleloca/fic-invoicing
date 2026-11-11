@@ -41,7 +41,7 @@ export function tenantInvoiceConfig(tenant: Tenant): InvoiceConfig {
     itemCode: tenant.itemCode,
     statementOverrides: parseStatementOverrides(tenant.fiscalStatements),
     eiPaymentMethod: tenant.eiPaymentMethod,
-    applyStampDuty: tenant.applyStampDuty,
+    stampDutyMode: tenant.stampDutyMode,
   };
 }
 

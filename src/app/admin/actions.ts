@@ -12,7 +12,7 @@ import { env } from "@/lib/env";
 import { ApiError } from "@/lib/errors";
 import { buildAuthorizeUrl, listUserCompanies } from "@/lib/fic/client";
 import { getFicAccess } from "@/lib/fic/tokens";
-import { CUSTOMER_CATEGORIES, FISCAL_REGIMES } from "@/lib/fiscal/types";
+import { CUSTOMER_CATEGORIES, FISCAL_REGIMES, STAMP_DUTY_MODES } from "@/lib/fiscal/types";
 import { retryInvoice } from "@/lib/invoices/service";
 import { createOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
@@ -137,6 +137,7 @@ const configSchema = z.object({
   numeration: optionalText(20),
   itemCode: optionalText(50),
   fiscalRegime: z.enum(FISCAL_REGIMES),
+  stampDutyMode: z.enum(STAMP_DUTY_MODES),
   eiPaymentMethod: z
     .string()
     .trim()
@@ -155,6 +156,7 @@ export async function updateTenantConfigAction(tenantId: string, formData: FormD
     numeration: field("numeration"),
     itemCode: field("itemCode"),
     fiscalRegime: field("fiscalRegime"),
+    stampDutyMode: field("stampDutyMode"),
     eiPaymentMethod: field("eiPaymentMethod"),
   });
   if (!parsed.success) {
@@ -173,7 +175,6 @@ export async function updateTenantConfigAction(tenantId: string, formData: FormD
     data: {
       ...parsed.data,
       fiscalStatements: Object.keys(statements).length > 0 ? statements : Prisma.DbNull,
-      applyStampDuty: formData.get("applyStampDuty") === "on",
       sendToSdi: formData.get("sendToSdi") === "on",
       dryRun: formData.get("dryRun") === "on",
       active: formData.get("active") === "on",

@@ -3,9 +3,9 @@
  * Pure function: no I/O, fully unit-tested.
  */
 import { getCountryNameForFIC } from "./countries";
-import { computeStampDutyCents } from "./stamp-duty";
+import { splitStampDuty } from "./stamp-duty";
 import { resolveStatement, type StatementOverrides } from "./statements";
-import { isItalianCategory, type CustomerCategory, type FiscalRegime } from "./types";
+import { isItalianCategory, type CustomerCategory, type FiscalRegime, type StampDutyMode } from "./types";
 
 export interface InvoiceConfig {
   fiscalRegime: FiscalRegime;
@@ -17,7 +17,7 @@ export interface InvoiceConfig {
   itemCode: string | null;
   statementOverrides: StatementOverrides | null;
   eiPaymentMethod: string;
-  applyStampDuty: boolean;
+  stampDutyMode: StampDutyMode;
 }
 
 /** Customer data as validated by the API schema (already normalised). */
@@ -202,13 +202,18 @@ export function buildIssuedDocumentPayload(config: InvoiceConfig, input: Invoice
   const entity = buildEntity(customer);
 
   const statement = resolveStatement(config.fiscalRegime, customer.category, config.statementOverrides);
-  const stampDutyCents = computeStampDutyCents(config.fiscalRegime, config.applyStampDuty, input.amountCents);
+  // CHARGED_TO_CUSTOMER: line = amount, total paid = amount + stamp.
+  // INCLUDED: the stamp is part of the amount paid, line = amount - stamp, total paid = amount.
+  const { itemCents, stampDutyCents, totalPaidCents } = splitStampDuty(
+    config.fiscalRegime,
+    config.stampDutyMode,
+    input.amountCents,
+  );
 
   // ORDINARIO + Italian customer: the amount is VAT-inclusive, let FIC split net and VAT.
   const grossPricing = config.fiscalRegime === "ORDINARIO" && isItalianCategory(customer.category);
-  const amount = centsToEuros(input.amountCents);
-  // Stamp duty is charged to the customer, so it is part of the amount paid.
-  const totalPaid = centsToEuros(input.amountCents + stampDutyCents);
+  const amount = centsToEuros(itemCents);
+  const totalPaid = centsToEuros(totalPaidCents);
 
   const body: FicIssuedDocumentRequest = {
     data: {

@@ -128,6 +128,24 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
       expect(row.attempts).toBe(1);
     });
 
+    it("INCLUDED stamp duty: line = amount - €2, payment = amount, response keeps the caller's amount", async () => {
+      const fic = installFicMock();
+      const { tenant, apiKey } = await createTenant({ stampDutyMode: "INCLUDED" });
+      const res = await post(apiKey, body());
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ amountCents: 10000, stampDutyCents: 200 });
+
+      const [call] = fic.callsTo(new RegExp(`^/c/${tenant.ficCompanyId}/issued_documents$`));
+      const data = (
+        call.body as {
+          data: { stamp_duty: number; items_list: { net_price: number }[]; payments_list: { amount: number }[] };
+        }
+      ).data;
+      expect(data.stamp_duty).toBe(2);
+      expect(data.items_list[0].net_price).toBe(98);
+      expect(data.payments_list[0].amount).toBe(100);
+    });
+
     it("is idempotent per tenant: same key returns the existing invoice with 200", async () => {
       const fic = installFicMock();
       const { apiKey } = await createTenant();

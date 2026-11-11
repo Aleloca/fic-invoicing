@@ -7,7 +7,7 @@ import {
   type InvoiceConfig,
 } from "@/lib/fiscal/payload";
 import { STATEMENT_PRESETS } from "@/lib/fiscal/statements";
-import { computeStampDutyCents } from "@/lib/fiscal/stamp-duty";
+import { computeStampDutyCents, splitStampDuty } from "@/lib/fiscal/stamp-duty";
 
 const forfettario: InvoiceConfig = {
   fiscalRegime: "FORFETTARIO",
@@ -19,7 +19,7 @@ const forfettario: InvoiceConfig = {
   itemCode: "SKU-1",
   statementOverrides: null,
   eiPaymentMethod: "MP08",
-  applyStampDuty: true,
+  stampDutyMode: "CHARGED_TO_CUSTOMER",
 };
 
 const ordinario: InvoiceConfig = { ...forfettario, fiscalRegime: "ORDINARIO", vatTypeId: 11, nonTaxableVatTypeId: 12 };
@@ -72,26 +72,119 @@ const itBusiness: CustomerData = {
 const build = (config: InvoiceConfig, customer: CustomerData, amountCents = 5000, dryRun = false) =>
   buildIssuedDocumentPayload(config, { customer, amountCents, description: "Service", date: "2026-11-10", dryRun });
 
+const included: InvoiceConfig = { ...forfettario, stampDutyMode: "INCLUDED" };
+const disabled: InvoiceConfig = { ...forfettario, stampDutyMode: "DISABLED" };
+
 describe("stamp duty", () => {
-  it("applies €2 only when forfettario, enabled and strictly above €77.47", () => {
-    expect(computeStampDutyCents("FORFETTARIO", true, 7747)).toBe(0);
-    expect(computeStampDutyCents("FORFETTARIO", true, 7748)).toBe(200);
-    expect(computeStampDutyCents("FORFETTARIO", false, 10000)).toBe(0);
-    expect(computeStampDutyCents("ORDINARIO", true, 10000)).toBe(0);
+  it("applies €2 only when forfettario, not disabled and strictly above €77.47", () => {
+    expect(computeStampDutyCents("FORFETTARIO", "CHARGED_TO_CUSTOMER", 7747)).toBe(0);
+    expect(computeStampDutyCents("FORFETTARIO", "CHARGED_TO_CUSTOMER", 7748)).toBe(200);
+    expect(computeStampDutyCents("FORFETTARIO", "INCLUDED", 7747)).toBe(0);
+    expect(computeStampDutyCents("FORFETTARIO", "INCLUDED", 7748)).toBe(200);
+    expect(computeStampDutyCents("FORFETTARIO", "DISABLED", 10000)).toBe(0);
+    expect(computeStampDutyCents("ORDINARIO", "CHARGED_TO_CUSTOMER", 10000)).toBe(0);
+    expect(computeStampDutyCents("ORDINARIO", "INCLUDED", 10000)).toBe(0);
   });
 
-  it("is added to the document and to the amount paid", () => {
-    const { body, stampDutyCents } = build(forfettario, itPrivate, 10000);
-    expect(stampDutyCents).toBe(200);
-    expect(body.data.stamp_duty).toBe(2);
-    expect(body.data.items_list[0].net_price).toBe(100);
-    expect(body.data.payments_list[0].amount).toBe(102);
+  it("splits the amount per mode", () => {
+    expect(splitStampDuty("FORFETTARIO", "CHARGED_TO_CUSTOMER", 10000)).toEqual({
+      itemCents: 10000,
+      stampDutyCents: 200,
+      totalPaidCents: 10200,
+    });
+    expect(splitStampDuty("FORFETTARIO", "INCLUDED", 10000)).toEqual({
+      itemCents: 9800,
+      stampDutyCents: 200,
+      totalPaidCents: 10000,
+    });
+    expect(splitStampDuty("FORFETTARIO", "DISABLED", 10000)).toEqual({
+      itemCents: 10000,
+      stampDutyCents: 0,
+      totalPaidCents: 10000,
+    });
+    expect(splitStampDuty("ORDINARIO", "INCLUDED", 10000)).toEqual({
+      itemCents: 10000,
+      stampDutyCents: 0,
+      totalPaidCents: 10000,
+    });
   });
 
-  it("is zero at the threshold", () => {
-    const { body } = build(forfettario, itPrivate, 7747);
-    expect(body.data.stamp_duty).toBe(0);
-    expect(body.data.payments_list[0].amount).toBe(77.47);
+  it("INCLUDED never leaves a non-positive line", () => {
+    for (const amount of [1, 199, 200, 201, 7747, 7748, 7947, 7948]) {
+      const { itemCents, totalPaidCents } = splitStampDuty("FORFETTARIO", "INCLUDED", amount);
+      expect(itemCents).toBeGreaterThan(0);
+      expect(totalPaidCents).toBe(amount);
+    }
+  });
+
+  describe("CHARGED_TO_CUSTOMER", () => {
+    it("above the threshold: added to the document and to the amount paid", () => {
+      const { body, stampDutyCents } = build(forfettario, itPrivate, 10000);
+      expect(stampDutyCents).toBe(200);
+      expect(body.data.stamp_duty).toBe(2);
+      expect(body.data.items_list[0].net_price).toBe(100);
+      expect(body.data.items_list[0].gross_price).toBe(100);
+      expect(body.data.payments_list[0].amount).toBe(102);
+    });
+
+    it("at the threshold: no stamp duty", () => {
+      const { body, stampDutyCents } = build(forfettario, itPrivate, 7747);
+      expect(stampDutyCents).toBe(0);
+      expect(body.data.stamp_duty).toBe(0);
+      expect(body.data.items_list[0].net_price).toBe(77.47);
+      expect(body.data.payments_list[0].amount).toBe(77.47);
+    });
+  });
+
+  describe("INCLUDED", () => {
+    it("above the threshold: €2 carved out of the line, amount paid unchanged", () => {
+      const { body, stampDutyCents } = build(included, itPrivate, 10000);
+      expect(stampDutyCents).toBe(200);
+      expect(body.data.stamp_duty).toBe(2);
+      expect(body.data.items_list[0].net_price).toBe(98);
+      expect(body.data.items_list[0].gross_price).toBe(98);
+      expect(body.data.payments_list[0].amount).toBe(100);
+    });
+
+    it("just above the threshold: stamp still applied, line below €77.47", () => {
+      const { body, stampDutyCents } = build(included, itPrivate, 7900);
+      expect(stampDutyCents).toBe(200);
+      expect(body.data.items_list[0].net_price).toBe(77);
+      expect(body.data.payments_list[0].amount).toBe(79);
+    });
+
+    it("at or below the threshold: no stamp duty, line = amount paid", () => {
+      for (const amount of [5000, 7747]) {
+        const { body, stampDutyCents } = build(included, itPrivate, amount);
+        expect(stampDutyCents).toBe(0);
+        expect(body.data.stamp_duty).toBe(0);
+        expect(body.data.items_list[0].net_price).toBe(amount / 100);
+        expect(body.data.payments_list[0].amount).toBe(amount / 100);
+      }
+    });
+
+    it("ORDINARIO ignores the mode", () => {
+      const { body, stampDutyCents } = build({ ...ordinario, stampDutyMode: "INCLUDED" }, itPrivate, 12200);
+      expect(stampDutyCents).toBe(0);
+      expect(body.data.items_list[0].gross_price).toBe(122);
+      expect(body.data.payments_list[0].amount).toBe(122);
+    });
+  });
+
+  describe("DISABLED", () => {
+    it("above the threshold: no stamp duty, line = amount paid", () => {
+      const { body, stampDutyCents } = build(disabled, itPrivate, 10000);
+      expect(stampDutyCents).toBe(0);
+      expect(body.data.stamp_duty).toBe(0);
+      expect(body.data.items_list[0].net_price).toBe(100);
+      expect(body.data.payments_list[0].amount).toBe(100);
+    });
+
+    it("below the threshold: no stamp duty", () => {
+      const { body, stampDutyCents } = build(disabled, itPrivate, 5000);
+      expect(stampDutyCents).toBe(0);
+      expect(body.data.payments_list[0].amount).toBe(50);
+    });
   });
 });
 

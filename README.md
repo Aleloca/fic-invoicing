@@ -23,7 +23,7 @@ fiscal wording, country mapping, retries and idempotency each time. This service
 - Multi-tenant: one API key and one Fatture in Cloud company per tenant, one OAuth app per instance.
 - Customer categories: `IT_PRIVATE`, `EU_PRIVATE`, `EXTRAEU_PRIVATE` (B2C) and `IT_BUSINESS` (B2B with SDI code or PEC).
 - Fiscal regimes: `FORFETTARIO` and `ORDINARIO`, with preset statements (art. 1 c. 58 L. 190/2014, art. 7-ter DPR 633/72) overridable per tenant and per category.
-- €2 stamp duty (imposta di bollo) on forfettario invoices above €77.47 (configurable).
+- €2 stamp duty (imposta di bollo) on forfettario invoices above €77.47: charged on top, included in the price, or disabled, per tenant.
 - Idempotent creation (`idempotencyKey`), a PENDING row written before the FIC call, FAILED rows that can be retried.
 - Dry-run mode per tenant (default on): Fatture in Cloud validates the invoice without saving it.
 - Optional automatic transmission to SDI after creation.
@@ -192,7 +192,19 @@ curl https://invoices.example.com/api/v1/health
 | ORDINARIO | EU_PRIVATE, EXTRAEU_PRIVATE | tenant non-taxable VAT type | art. 7-ter presets | no |
 
 - Statements are printed on the invoice line and in the notes. Override them per category in the admin panel.
-- **Stamp duty is charged to the customer:** the invoice total and the recorded payment are `amountCents + stampDutyCents`. Collect it at checkout, or untick *Apply stamp duty* if you handle it differently (and check with your accountant).
+- The €2 stamp duty follows the tenant's **stamp duty mode** (admin panel → *Stamp duty*). It only applies to FORFETTARIO invoices whose `amountCents` is above €77.47:
+
+  | Mode | Invoice line | `stamp_duty` | Total / recorded payment | Example, `amountCents: 10000` |
+  | --- | --- | --- | --- | --- |
+  | `CHARGED_TO_CUSTOMER` (default) | `amountCents` | €2 | `amountCents + 200` | line €100, bollo €2, paid €102 |
+  | `INCLUDED` | `amountCents − 200` | €2 | `amountCents` | line €98, bollo €2, paid €100 |
+  | `DISABLED` | `amountCents` | none | `amountCents` | line €100, paid €100 |
+
+  - `CHARGED_TO_CUSTOMER`: the customer pays the €2 on top. Use it only if your checkout actually collects `amount + €2`.
+  - `INCLUDED`: the €2 is part of the price the customer already paid. **Recommended for payment-processor flows with fixed prices** (Stripe Checkout, Paddle, app stores): the invoice total matches the charge exactly. Between €77.48 and €79.47 the stamp is still applied and the line ends up at or below €77.47: an unneeded €2 stamp is cheaper than a missing one that was due.
+  - `DISABLED`: no stamp duty at all, for tenants that handle it elsewhere.
+
+  In every mode the API response keeps your `amountCents` and reports `stampDutyCents` (0 or 200). Check the choice with your accountant.
 - `IT_BUSINESS` invoices are B2B: the customer's partita IVA, SDI recipient code (`0000000` + PEC when missing).
 - Other invoices are B2C, with the SDI payment method from the tenant (`MP08`, payment card, by default).
 - Country names are mapped from ISO codes to the Italian names Fatture in Cloud expects.

@@ -23,6 +23,16 @@ enum CustomerCategory {
   IT_BUSINESS
 }
 
+/// How the €2 stamp duty (imposta di bollo) is handled on FORFETTARIO invoices above €77.47.
+enum StampDutyMode {
+  /// Added on top of amountCents: the customer pays amount + €2.
+  CHARGED_TO_CUSTOMER
+  /// Part of amountCents: the invoice line is amount - €2, the customer pays amount.
+  INCLUDED
+  /// Never applied.
+  DISABLED
+}
+
 enum InvoiceStatus {
   PENDING
   ISSUED
@@ -62,17 +72,17 @@ model Tenant {
   numeration          String?
   /// Item code printed on the invoice line. Null leaves it empty.
   itemCode            String?
-  fiscalRegime        FiscalRegime @default(FORFETTARIO)
+  fiscalRegime        FiscalRegime  @default(FORFETTARIO)
   /// Per-category overrides of the fiscal statement text: { "IT_PRIVATE": "...", ... }. Null uses presets.
   fiscalStatements    Json?
   /// SDI ModalitaPagamento code. MP08 = payment card.
-  eiPaymentMethod     String       @default("MP08")
-  /// Apply €2 stamp duty (imposta di bollo) on FORFETTARIO invoices above €77.47.
-  applyStampDuty      Boolean      @default(true)
+  eiPaymentMethod     String        @default("MP08")
+  /// €2 stamp duty (imposta di bollo) on FORFETTARIO invoices above €77.47: on top, included or disabled.
+  stampDutyMode       StampDutyMode @default(CHARGED_TO_CUSTOMER)
   /// After a real (non dry-run) invoice is created, ask FIC to send it to SDI.
-  sendToSdi           Boolean      @default(false)
+  sendToSdi           Boolean       @default(false)
   /// When true every invoice is a FIC dry run: validated but never saved or sent.
-  dryRun              Boolean      @default(true)
+  dryRun              Boolean       @default(true)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

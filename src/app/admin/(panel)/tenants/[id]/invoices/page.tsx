@@ -110,7 +110,7 @@ export default async function InvoicesPage({
                     <td className="small">{inv.customerCategory}</td>
                     <td>
                       {euros(inv.amountCents)}
-                      {inv.stampDutyCents > 0 && <span className="muted small"> + bollo {euros(inv.stampDutyCents)}</span>}
+                      {inv.stampDutyCents > 0 && <span className="muted small"> · bollo {euros(inv.stampDutyCents)}</span>}
                     </td>
                     <td className="small">
                       {inv.errorMessage && <span style={{ color: "var(--danger)" }}>{inv.errorMessage}</span>}

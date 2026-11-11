@@ -246,7 +246,10 @@ components:
           minimum: 1
           description: |
             EUR cents for the service. VAT-inclusive for ORDINARIO tenants with Italian customers.
-            Stamp duty, when due, is added on top (see `stampDutyCents` in the response).
+            Stamp duty (FORFETTARIO, amount > 7747) depends on the tenant's stamp duty mode:
+            `CHARGED_TO_CUSTOMER` adds it on top (total paid = amountCents + stampDutyCents),
+            `INCLUDED` takes it out of this amount (invoice line = amountCents - stampDutyCents,
+            total paid = amountCents), `DISABLED` never applies it.
         description: { type: string, maxLength: 1000 }
         paidAt:
           type: string
@@ -265,8 +268,8 @@ components:
         customerCategory: { $ref: "#/components/schemas/CustomerCategory" }
         number: { type: [string, "null"], example: 12/A }
         ficDocumentId: { type: [integer, "null"], description: "null for dry runs" }
-        amountCents: { type: integer }
-        stampDutyCents: { type: integer }
+        amountCents: { type: integer, description: The amount sent by the caller, unchanged in every stamp duty mode. }
+        stampDutyCents: { type: integer, description: "Stamp duty on the invoice (0 or 200). Added on top or included in amountCents depending on the tenant's mode." }
         dryRun: { type: boolean }
         errorMessage: { type: [string, "null"] }
         attempts: { type: integer }

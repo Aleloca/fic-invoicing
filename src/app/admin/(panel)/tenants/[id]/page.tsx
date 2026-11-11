@@ -207,16 +207,27 @@ export default async function TenantPage({
                 required
               />
             </div>
+            <div>
+              <label htmlFor="stampDutyMode">
+                Stamp duty (bollo)
+                <span className="hint">
+                  €2 on forfettario invoices above €77.47. <em>Charged to customer</em>: added on top, the customer
+                  pays amount + €2. <em>Included</em>: the €2 comes out of the amount the customer already paid (use
+                  it with fixed checkout prices). <em>Disabled</em>: never applied.
+                </span>
+              </label>
+              <select id="stampDutyMode" name="stampDutyMode" defaultValue={tenant.stampDutyMode}>
+                <option value="CHARGED_TO_CUSTOMER">Charged to customer (amount + €2)</option>
+                <option value="INCLUDED">Included in the amount (line = amount − €2)</option>
+                <option value="DISABLED">Disabled</option>
+              </select>
+            </div>
           </div>
 
           <h2 style={{ marginTop: 24 }}>Options</h2>
           <label className="inline">
             <input type="checkbox" name="dryRun" defaultChecked={tenant.dryRun} /> Dry run (FIC validates invoices
             but does not save them)
-          </label>
-          <label className="inline">
-            <input type="checkbox" name="applyStampDuty" defaultChecked={tenant.applyStampDuty} /> Apply €2 stamp
-            duty on forfettario invoices above €77.47
           </label>
           <label className="inline">
             <input type="checkbox" name="sendToSdi" defaultChecked={tenant.sendToSdi} /> Send e-invoices to SDI
