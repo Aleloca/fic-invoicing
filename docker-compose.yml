@@ -1,0 +1,48 @@
+# Self-hosting stack: MySQL 8 + one-shot migration job + the app.
+# Copy .env.example to .env and fill in the secrets before `docker compose up`.
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-fic_invoicing}
+      MYSQL_USER: ${MYSQL_USER:-fic}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    ports:
+      # Bound to localhost only; change or remove if you do not need host access.
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-change-me-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    build:
+      context: .
+      target: builder
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER:-fic}:${MYSQL_PASSWORD:-change-me}@db:3306/${MYSQL_DATABASE:-fic_invoicing}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER:-fic}:${MYSQL_PASSWORD:-change-me}@db:3306/${MYSQL_DATABASE:-fic_invoicing}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:

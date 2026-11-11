@@ -1,0 +1,316 @@
+openapi: 3.1.0
+info:
+  title: fic-invoicing public API
+  version: 1.0.0
+  description: |
+    Issue Italian electronic invoices through Fatture in Cloud on behalf of a tenant.
+    Authenticate with the tenant API key: `Authorization: Bearer fici_...`.
+
+    All errors use the shape `{ "error": { "code": "...", "message": "..." } }`.
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Service and database are up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  database: { type: string, example: ok }
+        "503":
+          description: Database unreachable
+
+  /api/v1/invoices:
+    post:
+      summary: Create and issue an invoice (idempotent)
+      description: |
+        Same tenant + same `idempotencyKey` returns the existing invoice with status 200 and does not
+        call Fatture in Cloud again, whatever its status (a FAILED invoice is returned as is: use `retry`).
+
+        A PENDING row is written before calling Fatture in Cloud. If Fatture in Cloud fails, the invoice
+        becomes FAILED and the response is 502 with the invoice object plus an `error` field.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateInvoiceRequest" }
+            examples:
+              itPrivate:
+                summary: Italian private customer
+                value:
+                  idempotencyKey: order-1001
+                  externalRef: checkout_123
+                  amountCents: 10000
+                  description: Consulting session
+                  customer:
+                    category: IT_PRIVATE
+                    firstName: Mario
+                    lastName: Rossi
+                    fiscalCode: RSSMRA85T10A562S
+                    address: Via Roma 1
+                    zipCode: "00100"
+                    city: Roma
+                    province: RM
+                    countryCode: IT
+                    email: mario.rossi@example.com
+              itBusiness:
+                summary: Italian business (B2B)
+                value:
+                  idempotencyKey: order-1003
+                  amountCents: 5000
+                  description: Monthly plan
+                  customer:
+                    category: IT_BUSINESS
+                    companyName: Example S.r.l.
+                    vatNumber: "12345678903"
+                    sdiCode: ABC1234
+                    address: Via Milano 2
+                    zipCode: "20100"
+                    city: Milano
+                    province: MI
+                    countryCode: IT
+                    email: billing@example.com
+      responses:
+        "201":
+          description: Invoice issued (or validated, for dry runs)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        "200":
+          description: An invoice with this idempotency key already exists; it is returned unchanged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Tenant not connected / needs reconnection / not configured (`fic_not_connected`, `fic_reconnect_required`, `tenant_not_configured`). No invoice is created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Validation error. `details` lists `{ path, message }` items.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502":
+          description: Fatture in Cloud rejected the request. The invoice is FAILED.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FailedInvoice" }
+
+  /api/v1/invoices/{id}:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceId"
+    get:
+      summary: Get an invoice
+      responses:
+        "200":
+          description: The invoice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404":
+          description: Not found (or belongs to another tenant)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/invoices/{id}/pdf:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceId"
+    get:
+      summary: Download the courtesy PDF
+      responses:
+        "200":
+          description: PDF stream
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Invoice not ISSUED, or a dry run without a document in Fatture in Cloud
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /api/v1/invoices/{id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceId"
+    post:
+      summary: Retry a FAILED invoice
+      description: |
+        Re-issues a FAILED invoice with the tenant's current configuration. Also retries the SDI
+        transmission of an ISSUED invoice whose automatic send to SDI failed.
+        Fails with 409 if the stored payload was purged.
+      responses:
+        "200":
+          description: Retried; check `status`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invoice" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502":
+          description: Still failing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FailedInvoice" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Tenant API key (`fici_...`)
+
+  parameters:
+    InvoiceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests for this API key
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    CustomerCategory:
+      type: string
+      enum: [IT_PRIVATE, EU_PRIVATE, EXTRAEU_PRIVATE, IT_BUSINESS]
+
+    Customer:
+      type: object
+      required: [category, address, zipCode, city, countryCode, email]
+      description: |
+        Rules per category:
+        - IT_PRIVATE: firstName, lastName, valid fiscalCode, countryCode IT, 5-digit zipCode, province.
+        - EU_PRIVATE: firstName, lastName, EU countryCode other than IT.
+        - EXTRAEU_PRIVATE: firstName, lastName, non-EU countryCode.
+        - IT_BUSINESS: companyName, valid Italian vatNumber, sdiCode or pec, countryCode IT, zipCode, province.
+      properties:
+        category: { $ref: "#/components/schemas/CustomerCategory" }
+        firstName: { type: string, maxLength: 100 }
+        lastName: { type: string, maxLength: 100 }
+        companyName: { type: string, maxLength: 200 }
+        fiscalCode: { type: string, description: Codice fiscale }
+        vatNumber: { type: string, description: Partita IVA (11 digits, optional IT prefix) }
+        sdiCode: { type: string, description: SDI recipient code (7 characters) }
+        pec: { type: string, format: email, description: Certified email, used when sdiCode is missing }
+        address: { type: string, maxLength: 200 }
+        zipCode: { type: string }
+        city: { type: string, maxLength: 100 }
+        province: { type: string, description: Italian province code, e.g. RM }
+        countryCode: { type: string, description: ISO 3166-1 alpha-2, minLength: 2, maxLength: 2 }
+        email: { type: string, format: email }
+
+    CreateInvoiceRequest:
+      type: object
+      required: [idempotencyKey, customer, amountCents, description]
+      properties:
+        idempotencyKey: { type: string, maxLength: 191 }
+        externalRef: { type: string, maxLength: 191, description: Your own reference (order id...) }
+        customer: { $ref: "#/components/schemas/Customer" }
+        amountCents:
+          type: integer
+          minimum: 1
+          description: |
+            EUR cents for the service. VAT-inclusive for ORDINARIO tenants with Italian customers.
+            Stamp duty, when due, is added on top (see `stampDutyCents` in the response).
+        description: { type: string, maxLength: 1000 }
+        paidAt:
+          type: string
+          description: Payment / document date (YYYY-MM-DD or ISO date-time). Defaults to today (Europe/Rome). Cannot be in the future.
+        dryRun:
+          type: boolean
+          description: true forces a dry run. false cannot disable a tenant-level dry run.
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: string }
+        idempotencyKey: { type: string }
+        externalRef: { type: [string, "null"] }
+        status: { type: string, enum: [PENDING, ISSUED, FAILED] }
+        customerCategory: { $ref: "#/components/schemas/CustomerCategory" }
+        number: { type: [string, "null"], example: 12/A }
+        ficDocumentId: { type: [integer, "null"], description: "null for dry runs" }
+        amountCents: { type: integer }
+        stampDutyCents: { type: integer }
+        dryRun: { type: boolean }
+        errorMessage: { type: [string, "null"] }
+        attempts: { type: integer }
+        sdi:
+          type: object
+          properties:
+            sentAt: { type: [string, "null"], format: date-time }
+            error: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    FailedInvoice:
+      allOf:
+        - $ref: "#/components/schemas/Invoice"
+        - type: object
+          properties:
+            error:
+              type: object
+              properties:
+                code: { type: string, example: fic_error }
+                message: { type: string }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthorized
+                - forbidden
+                - not_found
+                - invalid_json
+                - validation_error
+                - conflict
+                - tenant_not_configured
+                - fic_not_connected
+                - fic_reconnect_required
+                - fic_error
+                - rate_limited
+                - internal_error
+            message: { type: string }
+            details: {}
