@@ -9,17 +9,17 @@ This guide explains how an app issues Italian electronic invoices through this f
 
 - **Base URL:** \`${baseUrl}/api/v1\`
 - **Format:** JSON in and JSON out (\`Content-Type: application/json\`), except the PDF download.
-- **Auth:** \`Authorization: Bearer <tenant API key>\`. Keys start with \`fici_\`.
+- **Auth:** \`Authorization: Bearer <project API key>\`. Keys start with \`fici_\`.
 - **Contract:** OpenAPI 3.1 in \`openapi.yaml\` in the repository.
 
 ## How it works
 
-1. An admin creates a **tenant** for your app in this panel and gives you its **API key**. The key is shown once; keep it in your app's secrets (for example \`FICI_API_KEY\`), never in client-side code.
-2. The tenant is connected to a Fatture in Cloud company and configured: fiscal regime, VAT, payment account and method, numeration and stamp duty.
-3. After each sale your **server** calls \`POST /api/v1/invoices\` with the amount and the customer's billing data. The service builds a correct e-invoice, creates it in Fatture in Cloud and, if the tenant is set up for it, sends it to SDI.
+1. An admin creates a **project** for your app in this panel and gives you its **API key**. The key is shown once; keep it in your app's secrets (for example \`FICI_API_KEY\`), never in client-side code.
+2. The project issues from a Fatture in Cloud company and inherits its settings (fiscal regime, VAT, payment account and method, numeration, stamp duty). An admin can customize any of them for your project. Several projects can share one company.
+3. After each sale your **server** calls \`POST /api/v1/invoices\` with the amount and the customer's billing data. The service builds a correct e-invoice, creates it in Fatture in Cloud and, if the project is set up for it, sends it to SDI.
 4. You store the returned invoice \`id\` next to your order, to read it later or to download the PDF.
 
-New tenants start in **dry run**. Invoices are validated against Fatture in Cloud but nothing is created there, so test freely until an admin turns dry run off.
+New projects start in **dry run**. Invoices are validated against Fatture in Cloud but nothing is created there, so test freely until an admin turns dry run off.
 
 ## Integration checklist
 
@@ -64,13 +64,13 @@ curl -X POST ${baseUrl}/api/v1/invoices \\
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| \`idempotencyKey\` | string, max 191 | yes | Unique per sale within the tenant. Repeating it returns the existing invoice. |
+| \`idempotencyKey\` | string, max 191 | yes | Unique per sale within the project. Repeating it returns the existing invoice. |
 | \`externalRef\` | string, max 191 | no | Your own reference (order id, checkout id). |
-| \`amountCents\` | integer ≥ 1 | yes | Price of the service in euro cents. For ordinario tenants with Italian customers it includes VAT. |
+| \`amountCents\` | integer ≥ 1 | yes | Price of the service in euro cents. For ordinario companies with Italian customers it includes VAT. |
 | \`description\` | string, max 1000 | yes | Text of the invoice line. |
 | \`customer\` | object | yes | See *Customers*. |
 | \`paidAt\` | string | no | Payment and document date, \`YYYY-MM-DD\` or ISO date-time. Defaults to today in Europe/Rome. Cannot be in the future. |
-| \`dryRun\` | boolean | no | \`true\` forces a dry run. \`false\` cannot turn off a tenant's dry run. |
+| \`dryRun\` | boolean | no | \`true\` forces a dry run. \`false\` cannot turn off a project's dry run. |
 
 ### Customers
 
@@ -143,8 +143,8 @@ Optional fields: \`firstName\` and \`lastName\` (max 100 characters), \`companyN
 | \`200\` | An invoice with this \`idempotencyKey\` already exists. It is returned unchanged, whatever its status. | Read \`status\`. \`DELETED\` means it is no longer valid: use a new key to invoice again. |
 | \`400\` | Body is not valid JSON (\`invalid_json\`). | Fix the request. |
 | \`401\` | Missing or wrong API key (\`unauthorized\`). | Check the key. |
-| \`403\` | Tenant disabled by an admin (\`forbidden\`). | Ask the admin. |
-| \`409\` | Tenant not ready: \`fic_not_connected\`, \`fic_reconnect_required\` or \`tenant_not_configured\`. No invoice is created. | Ask the admin to finish the setup, then send again with the same key. |
+| \`403\` | Project disabled by an admin (\`forbidden\`). | Ask the admin. |
+| \`409\` | Project not ready: \`fic_not_connected\`, \`fic_reconnect_required\` or \`tenant_not_configured\`. No invoice is created. | Ask the admin to finish the setup, then send again with the same key. |
 | \`422\` | Validation failed (\`validation_error\`). \`error.details\` lists \`{ path, message }\`. | Fix the fields listed. |
 | \`429\` | Rate limit for this key (\`rate_limited\`). | Wait for \`Retry-After\` seconds. |
 | \`502\` | Fatture in Cloud refused the invoice, or the totals check failed. The invoice is stored as \`FAILED\`; the body is the invoice plus \`error\`. | Log \`error.message\`; retry later with the retry endpoint. |
@@ -153,9 +153,9 @@ Optional fields: \`firstName\` and \`lastName\` (max 100 characters), \`companyN
 
 | Method and path | What it does |
 | --- | --- |
-| \`GET /api/v1/invoices/{id}\` | Returns the invoice. Another tenant's id returns \`404\`. |
+| \`GET /api/v1/invoices/{id}\` | Returns the invoice. Another project's id returns \`404\`. |
 | \`GET /api/v1/invoices/{id}/pdf\` | Streams the courtesy PDF (\`application/pdf\`). \`409\` for dry runs, failed or deleted invoices. |
-| \`POST /api/v1/invoices/{id}/retry\` | Issues a \`FAILED\` invoice again with the tenant's current settings, or resends to SDI an issued invoice whose automatic send failed. \`409\` for other statuses, deleted invoices, or when the stored data was purged. \`502\` if it still fails. |
+| \`POST /api/v1/invoices/{id}/retry\` | Issues a \`FAILED\` invoice again with the project's current settings, or resends to SDI an issued invoice whose automatic send failed. \`409\` for other statuses, deleted invoices, or when the stored data was purged. \`502\` if it still fails. |
 | \`GET /api/v1/health\` | No auth. \`{"status":"ok","database":"ok"}\`, or \`503\` when the database is unreachable. |
 
 \`\`\`bash
@@ -173,7 +173,7 @@ Every error has the same shape:
 { "error": { "code": "validation_error", "message": "Invalid request body", "details": [{ "path": "customer.fiscalCode", "message": "Invalid fiscal code" }] } }
 \`\`\`
 
-Codes: \`unauthorized\`, \`forbidden\`, \`not_found\`, \`invalid_json\`, \`validation_error\`, \`conflict\`, \`tenant_not_configured\`, \`fic_not_connected\`, \`fic_reconnect_required\`, \`fic_error\`, \`rate_limited\`, \`internal_error\`.
+Codes: \`unauthorized\`, \`forbidden\`, \`not_found\`, \`invalid_json\`, \`validation_error\`, \`conflict\`, \`tenant_not_configured\`, \`fic_not_connected\`, \`fic_reconnect_required\`, \`fic_error\`, \`rate_limited\`, \`internal_error\`. \`tenant_not_configured\` keeps its historical name: projects used to be called tenants.
 
 ## Statuses
 
@@ -186,10 +186,10 @@ Codes: \`unauthorized\`, \`forbidden\`, \`not_found\`, \`invalid_json\`, \`valid
 
 ## Behaviour to rely on
 
-- **Idempotency.** For each tenant, an \`idempotencyKey\` is used once. Repeating it never calls Fatture in Cloud twice and returns the stored invoice with \`200\`, in whatever state it is: a \`FAILED\` invoice stays failed (use retry) and a \`DELETED\` one stays deleted (use a new key).
+- **Idempotency.** For each project, an \`idempotencyKey\` is used once. Repeating it never calls Fatture in Cloud twice and returns the stored invoice with \`200\`, in whatever state it is: a \`FAILED\` invoice stays failed (use retry) and a \`DELETED\` one stays deleted (use a new key).
 - **Totals pre-check.** Before creating a document, Fatture in Cloud computes the invoice totals. If the payment does not match the amount due, the invoice fails and no number is used.
 - **Dry run.** Only the totals check runs, so nothing is created in Fatture in Cloud or sent to SDI. A passing dry run is \`ISSUED\` with \`dryRun: true\`, \`number: null\` and \`ficDocumentId: null\`.
-- **Stamp duty.** €2 applies to forfettario invoices above €77.47, depending on the tenant's mode:
+- **Stamp duty.** €2 applies to forfettario invoices above €77.47, depending on the project's stamp duty mode:
   - *charged to customer*: an extra €2 line, so the customer pays \`amountCents\` + 200;
   - *included*: the seller bears it and the customer pays \`amountCents\`;
   - *disabled*: never applied.
@@ -200,6 +200,6 @@ Codes: \`unauthorized\`, \`forbidden\`, \`not_found\`, \`invalid_json\`, \`valid
 
 ## Not tax advice
 
-The fiscal statements, stamp duty rule and VAT handling are common setups for Italian sole traders. Check the tenant's settings with an accountant before sending real invoices.
+The fiscal statements, stamp duty rule and VAT handling are common setups for Italian sole traders. Check the project's settings with an accountant before sending real invoices.
 `;
 }

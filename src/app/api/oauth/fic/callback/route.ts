@@ -1,9 +1,9 @@
 import { isAdmin } from "@/lib/admin-session";
 import { env } from "@/lib/env";
-import { exchangeCodeForTokens, listUserCompanies } from "@/lib/fic/client";
-import { saveTokens } from "@/lib/fic/tokens";
+import { exchangeCodeForTokens, getUserInfo, listUserCompanies } from "@/lib/fic/client";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
+import { connectAccount, ensureCompany } from "@/lib/projects/accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +16,13 @@ export async function GET(request: Request): Promise<Response> {
   if (!(await isAdmin())) return redirectTo("/admin/login");
 
   const url = new URL(request.url);
-  const tenantId = verifyOAuthState(url.searchParams.get("state"));
-  if (!tenantId) return redirectTo("/admin?error=invalid_oauth_state");
+  const target = verifyOAuthState(url.searchParams.get("state"));
+  if (!target) return redirectTo("/admin/fic?error=invalid_oauth_state");
 
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-  if (!tenant) return redirectTo("/admin?error=unknown_tenant");
-  const back = `/admin/tenants/${tenant.id}`;
+  const project = target.projectId
+    ? await prisma.project.findUnique({ where: { id: target.projectId }, select: { id: true, companyId: true } })
+    : null;
+  const back = project ? `/admin/projects/${project.id}` : "/admin/fic";
 
   const oauthError = url.searchParams.get("error");
   const code = url.searchParams.get("code");
@@ -31,25 +32,24 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const tokens = await exchangeCodeForTokens(code);
-    await saveTokens(tenant.id, tokens);
-    const companies = await listUserCompanies(tokens.access_token);
+    const user = await getUserInfo(tokens.access_token).catch(() => null);
+    const result = await connectAccount(tokens, user, target.accountId);
+    if (!result.ok) return redirectTo(`${back}?error=oauth_${result.reason}`);
+    const { account } = result;
 
-    // Keep the current company if the new authorization still grants it,
-    // pick the only one automatically, otherwise let the admin choose.
-    const chosen =
-      companies.find((c) => c.id === tenant.ficCompanyId) ?? (companies.length === 1 ? companies[0] : undefined);
-    if (chosen) {
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: { ficCompanyId: chosen.id, ficCompanyName: chosen.name, connectedAt: new Date() },
-      });
-      return redirectTo(`${back}?notice=connected`);
+    // A project without a company gets the only company of the account at once; otherwise the
+    // admin chooses among every connected account's companies.
+    if (project && !project.companyId) {
+      const companies = await listUserCompanies(tokens.access_token);
+      if (companies.length === 1) {
+        const company = await ensureCompany(account.id, companies[0]);
+        await prisma.project.update({ where: { id: project.id }, data: { companyId: company.id } });
+        return redirectTo(`${back}?notice=connected`);
+      }
+      return redirectTo(`${back}/company?account=${account.id}`);
     }
-    await prisma.tenant.update({
-      where: { id: tenant.id },
-      data: { ficCompanyId: null, ficCompanyName: null, connectedAt: null },
-    });
-    return redirectTo(`${back}/company`);
+    const notice = target.accountId ? "reconnected" : result.created ? "account_connected" : "reconnected";
+    return redirectTo(`${back}?notice=${notice}`);
   } catch (error) {
     console.error("[fic-invoicing] OAuth callback failed", error instanceof Error ? error.message : error);
     return redirectTo(`${back}?error=oauth_callback_failed`);

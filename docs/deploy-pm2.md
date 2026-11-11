@@ -151,5 +151,5 @@ block, since the admin panel has a single shared password.
 
 - Health check: `GET /api/v1/health` (no auth) returns `200` when the app and database are up, `503` otherwise.
 - Logs: `pm2 logs fic-invoicing`. Errors from Fatture in Cloud are also stored on the invoice (`errorMessage`).
-- Watch for tenants flagged **reconnect required** in the admin panel.
+- Watch for Fatture in Cloud accounts flagged **reconnect required** in the admin panel.
 - Back up the MySQL database and keep `ENCRYPTION_KEY` safe: without it the stored tokens cannot be decrypted.

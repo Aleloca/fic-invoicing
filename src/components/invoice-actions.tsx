@@ -26,11 +26,11 @@ function deleteWarning(inv: InvoiceRow): string {
 
 export function InvoiceActions({
   inv,
-  tenantId,
+  projectId,
   returnTo,
 }: {
   inv: InvoiceRow;
-  tenantId: string;
+  projectId: string;
   returnTo: string;
 }) {
   const sdiRetry = inv.status === "ISSUED" && inv.sdiError !== null && inv.sdiSentAt === null;
@@ -40,7 +40,7 @@ export function InvoiceActions({
   return (
     <div className="row-actions">
       {canRetry && (
-        <form action={retryInvoiceAction.bind(null, tenantId, inv.id)}>
+        <form action={retryInvoiceAction.bind(null, projectId, inv.id)}>
           <input type="hidden" name="returnTo" value={returnTo} />
           <button type="submit" className="btn small">
             {sdiRetry ? "Resend to SDI" : "Retry"}
@@ -52,7 +52,7 @@ export function InvoiceActions({
           <summary className="btn small danger">Delete</summary>
           <div className="confirm-box">
             <p>{deleteWarning(inv)}</p>
-            <form action={deleteInvoiceAction.bind(null, tenantId, inv.id)}>
+            <form action={deleteInvoiceAction.bind(null, projectId, inv.id)}>
               <input type="hidden" name="returnTo" value={returnTo} />
               <button type="submit" className="btn small danger solid">
                 Confirm delete

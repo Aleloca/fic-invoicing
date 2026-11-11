@@ -6,7 +6,7 @@ import { POST as createInvoice } from "@/app/api/v1/invoices/route";
 import { GET as health } from "@/app/api/v1/health/route";
 import { apiRateLimiter } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createTenant, hasTestDb, resetDb } from "../helpers/db";
+import { createProject, hasTestDb, resetDb } from "../helpers/db";
 import { installFicMock } from "../helpers/fic-mock";
 import { apiRequest, params } from "../helpers/http";
 
@@ -72,16 +72,16 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
       expect((await wrong.json()).error.code).toBe("unauthorized");
     });
 
-    it("403 for a disabled tenant", async () => {
-      const { apiKey } = await createTenant({ active: false });
+    it("403 for a disabled project", async () => {
+      const { apiKey } = await createProject({ active: false });
       const res = await post(apiKey, body());
       expect(res.status).toBe(403);
     });
 
-    it("tenants cannot see each other's invoices (404)", async () => {
+    it("projects cannot see each other's invoices (404)", async () => {
       const fic = installFicMock();
-      const a = await createTenant();
-      const b = await createTenant();
+      const a = await createProject();
+      const b = await createProject();
       const created = await (await post(a.apiKey, body())).json();
 
       const asOwner = await getInvoice(apiRequest(`/api/v1/invoices/${created.id}`, { apiKey: a.apiKey }), params({ id: created.id }));
@@ -100,7 +100,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("rate limits per key with 429 and Retry-After", async () => {
       process.env.RATE_LIMIT_PER_MINUTE = "1000";
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const limiter = apiRateLimiter();
       for (let i = 0; i < 1000; i++) limiter.hit((await import("@/lib/api-key")).hashApiKey(apiKey));
       const res = await getInvoice(apiRequest("/x", { apiKey }), params({ id: "nope" }));
@@ -112,7 +112,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
   describe("create", () => {
     it("issues an invoice: totals pre-check, then create: 201, stamp duty line, number, payload purged", async () => {
       const fic = installFicMock();
-      const { tenant, apiKey } = await createTenant();
+      const { project, apiKey } = await createProject();
       const res = await post(apiKey, body());
       expect(res.status).toBe(201);
       const json = await res.json();
@@ -129,11 +129,11 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
       const ficPaths = fic.state.calls.filter((c) => c.url.hostname === "fic.test").map((c) => c.url.pathname);
       expect(ficPaths).toEqual([
-        `/c/${tenant.ficCompanyId}/issued_documents/totals`,
-        `/c/${tenant.ficCompanyId}/issued_documents`,
+        `/c/${project.company!.ficCompanyId}/issued_documents/totals`,
+        `/c/${project.company!.ficCompanyId}/issued_documents`,
       ]);
       const [totalsCall] = fic.callsTo(/\/issued_documents\/totals$/);
-      const [call] = fic.callsTo(new RegExp(`^/c/${tenant.ficCompanyId}/issued_documents$`));
+      const [call] = fic.callsTo(new RegExp(`^/c/${project.company!.ficCompanyId}/issued_documents$`));
       expect(call.authorization).toBe("Bearer access-0");
       expect(totalsCall.body).toEqual({ data: (call.body as SentDocument).data });
       expect(Object.keys(call.body as object)).toEqual(["data"]);
@@ -154,12 +154,12 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("INCLUDED stamp duty: line = amount, stamp declared, payment = amount, response keeps the caller's amount", async () => {
       const fic = installFicMock();
-      const { tenant, apiKey } = await createTenant({ stampDutyMode: "INCLUDED", stampDutyVatTypeId: null });
+      const { project, apiKey } = await createProject({ stampDutyMode: "INCLUDED", stampDutyVatTypeId: null });
       const res = await post(apiKey, body());
       expect(res.status).toBe(201);
       expect(await res.json()).toMatchObject({ status: "ISSUED", amountCents: 10000, stampDutyCents: 200 });
 
-      const [call] = fic.callsTo(new RegExp(`^/c/${tenant.ficCompanyId}/issued_documents$`));
+      const [call] = fic.callsTo(new RegExp(`^/c/${project.company!.ficCompanyId}/issued_documents$`));
       const data = (call.body as SentDocument).data;
       expect(data.stamp_duty).toBe(2);
       expect(data.items_list).toHaveLength(1);
@@ -169,7 +169,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("CHARGED_TO_CUSTOMER without a stamp duty VAT type: 409 tenant_not_configured when the stamp applies", async () => {
       const fic = installFicMock();
-      const { apiKey } = await createTenant({ stampDutyVatTypeId: null });
+      const { apiKey } = await createProject({ stampDutyVatTypeId: null });
       const res = await post(apiKey, body());
       expect(res.status).toBe(409);
       const json = await res.json();
@@ -187,7 +187,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
     it("totals mismatch: FAILED with both amounts, nothing created in FIC", async () => {
       const fic = installFicMock();
       fic.state.amountDueOverride = 100;
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const res = await post(apiKey, body());
       expect(res.status).toBe(502);
       const json = await res.json();
@@ -201,7 +201,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("totals rejected by FIC: FAILED with the FIC message, nothing created", async () => {
       const fic = installFicMock({ failTotalsWith: 422 });
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const res = await post(apiKey, body());
       expect(res.status).toBe(502);
       const json = await res.json();
@@ -210,9 +210,9 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
       expect(fic.callsTo(/issued_documents$/)).toHaveLength(0);
     });
 
-    it("is idempotent per tenant: same key returns the existing invoice with 200", async () => {
+    it("is idempotent per project: same key returns the existing invoice with 200", async () => {
       const fic = installFicMock();
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const first = await post(apiKey, body());
       const second = await post(apiKey, body({ amountCents: 999 }));
       expect(first.status).toBe(201);
@@ -224,10 +224,10 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
       expect(await prisma.invoice.count()).toBe(1);
     });
 
-    it("the same idempotency key in another tenant is a different invoice", async () => {
+    it("the same idempotency key in another project is a different invoice", async () => {
       installFicMock();
-      const a = await createTenant();
-      const b = await createTenant();
+      const a = await createProject();
+      const b = await createProject();
       const ra = await (await post(a.apiKey, body())).json();
       const rb = await (await post(b.apiKey, body())).json();
       expect(ra.id).not.toBe(rb.id);
@@ -235,7 +235,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("concurrent requests with the same key create one invoice", async () => {
       const fic = installFicMock();
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const responses = await Promise.all([post(apiKey, body()), post(apiKey, body()), post(apiKey, body())]);
       const ids = new Set(await Promise.all(responses.map(async (r) => (await r.json()).id)));
       expect(ids.size).toBe(1);
@@ -245,7 +245,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("FIC failure: row FAILED, 502 with the invoice; repeating the key returns it as is; retry issues it", async () => {
       const fic = installFicMock({ failCreateWith: 422 });
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const res = await post(apiKey, body());
       expect(res.status).toBe(502);
       const failed = await res.json();
@@ -271,7 +271,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("dry run validates with the totals endpoint and never creates a document; caller can force it, not disable it", async () => {
       const fic = installFicMock();
-      const live = await createTenant({ dryRun: false, sendToSdi: true });
+      const live = await createProject({ dryRun: false, sendToSdi: true });
       const forcedRes = await post(live.apiKey, body({ dryRun: true }));
       expect(forcedRes.status).toBe(201);
       expect(await forcedRes.json()).toMatchObject({
@@ -283,7 +283,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
         sdi: { sentAt: null, error: null },
       });
 
-      const dry = await createTenant({ dryRun: true });
+      const dry = await createProject({ dryRun: true });
       const notOverridden = await (await post(dry.apiKey, body({ dryRun: false }))).json();
       expect(notOverridden).toMatchObject({ status: "ISSUED", dryRun: true, ficDocumentId: null, number: null });
 
@@ -298,7 +298,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
     it("dry run with a totals mismatch is FAILED", async () => {
       const fic = installFicMock();
       fic.state.amountDueOverride = 50;
-      const { apiKey } = await createTenant({ dryRun: true });
+      const { apiKey } = await createProject({ dryRun: true });
       const json = await (await post(apiKey, body())).json();
       expect(json).toMatchObject({ status: "FAILED", dryRun: true });
       expect(json.errorMessage).toMatch(/does not match the amount due/);
@@ -306,7 +306,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
     });
 
     it("validation errors: 422 with details; invalid JSON: 400", async () => {
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const res = await post(apiKey, body({ amountCents: -1 }));
       expect(res.status).toBe(422);
       const json = await res.json();
@@ -320,14 +320,14 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
       expect(await prisma.invoice.count()).toBe(0);
     });
 
-    it("unconfigured or disconnected tenants are refused before creating a row", async () => {
+    it("unconfigured or disconnected projects are refused before creating a row", async () => {
       installFicMock();
-      const unconfigured = await createTenant({ paymentAccountId: null });
+      const unconfigured = await createProject({ paymentAccountId: null });
       const r1 = await post(unconfigured.apiKey, body());
       expect(r1.status).toBe(409);
       expect((await r1.json()).error.code).toBe("tenant_not_configured");
 
-      const reconnect = await createTenant({ ficNeedsReconnect: true });
+      const reconnect = await createProject({ needsReconnect: true });
       const r2 = await post(reconnect.apiKey, body());
       expect((await r2.json()).error.code).toBe("fic_reconnect_required");
       expect(await prisma.invoice.count()).toBe(0);
@@ -335,7 +335,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
 
     it("sends to SDI when enabled", async () => {
       const fic = installFicMock();
-      const { apiKey } = await createTenant({ sendToSdi: true });
+      const { apiKey } = await createProject({ sendToSdi: true });
       const json = await (await post(apiKey, body())).json();
       expect(json.sdi.sentAt).not.toBeNull();
       expect(fic.callsTo(/\/e_invoice\/send$/)).toHaveLength(1);
@@ -345,7 +345,7 @@ describe.skipIf(!hasTestDb)("public API (integration)", () => {
   describe("pdf", () => {
     it("streams the courtesy PDF of an issued invoice", async () => {
       const fic = installFicMock();
-      const { apiKey } = await createTenant();
+      const { apiKey } = await createProject();
       const created = await (await post(apiKey, body())).json();
       const res = await getPdf(apiRequest("/x", { apiKey }), params({ id: created.id }));
       expect(res.status).toBe(200);

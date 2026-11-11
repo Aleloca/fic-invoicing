@@ -5,7 +5,7 @@ import { rotateApiKeyAction, type FormState } from "../../../actions";
 import { ApiKeyReveal } from "@/components/api-key-reveal";
 import { Notice } from "@/components/notices";
 
-export function RotateKeyForm({ tenantId, prefix }: { tenantId: string; prefix: string }) {
+export function RotateKeyForm({ projectId, prefix }: { projectId: string; prefix: string }) {
   const [state, action, pending] = useActionState<FormState, FormData>(rotateApiKeyAction, {});
   return (
     <form
@@ -15,7 +15,7 @@ export function RotateKeyForm({ tenantId, prefix }: { tenantId: string; prefix: 
       }}
       className="section-body"
     >
-      <input type="hidden" name="tenantId" value={tenantId} />
+      <input type="hidden" name="projectId" value={projectId} />
       {state.error && (
         <Notice tone="error" className="inline">
           {state.error}

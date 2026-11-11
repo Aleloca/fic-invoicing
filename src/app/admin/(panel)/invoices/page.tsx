@@ -56,7 +56,7 @@ export default async function AllInvoicesPage({
 }: {
   searchParams: Promise<{
     status?: string;
-    tenant?: string;
+    project?: string;
     from?: string;
     to?: string;
     page?: string;
@@ -64,16 +64,16 @@ export default async function AllInvoicesPage({
   }>;
 }) {
   const query = await searchParams;
-  const tenants = await prisma.tenant.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const projects = await prisma.project.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
 
   const status = STATUSES.find((s) => s === query.status);
-  const tenantId = tenants.find((t) => t.id === query.tenant)?.id;
+  const projectId = projects.find((t) => t.id === query.project)?.id;
   const from = query.from && DAY.test(query.from) ? query.from : undefined;
   const to = query.to && DAY.test(query.to) ? query.to : undefined;
   const page = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
 
   const scope: Prisma.InvoiceWhereInput = {
-    ...(tenantId ? { tenantId } : {}),
+    ...(projectId ? { projectId } : {}),
     ...(from || to
       ? { createdAt: { ...(from ? { gte: romeMidnight(from) } : {}), ...(to ? { lt: romeMidnight(nextDay(to)) } : {}) } }
       : {}),
@@ -87,7 +87,7 @@ export default async function AllInvoicesPage({
       orderBy: { createdAt: "desc" },
       take: PAGE_SIZE,
       skip: (page - 1) * PAGE_SIZE,
-      select: { ...INVOICE_ROW_SELECT, tenant: { select: { id: true, name: true } } },
+      select: { ...INVOICE_ROW_SELECT, project: { select: { id: true, name: true } } },
     }),
     prisma.invoice.count({ where }),
     prisma.invoice.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
@@ -101,21 +101,21 @@ export default async function AllInvoicesPage({
   const all = counts.filter((c) => c.status !== "DELETED").reduce((sum, c) => sum + c._count._all, 0);
   const { notice, error } = invoiceNotice(query.notice);
 
-  const href = (over: Partial<Record<"status" | "tenant" | "from" | "to" | "page", string | undefined>>) => {
-    const values = { status, tenant: tenantId, from, to, page: undefined as string | undefined, ...over };
+  const href = (over: Partial<Record<"status" | "project" | "from" | "to" | "page", string | undefined>>) => {
+    const values = { status, project: projectId, from, to, page: undefined as string | undefined, ...over };
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(values)) if (v) qs.set(k, v);
     const str = qs.toString();
     return str ? `/admin/invoices?${str}` : "/admin/invoices";
   };
-  const filtered = Boolean(tenantId || from || to);
+  const filtered = Boolean(projectId || from || to);
 
   return (
     <>
       <div className="page-head">
         <h1>Invoices</h1>
         <p className="sub">
-          Every invoice of every tenant. Filter by tenant and period. Anything not sent to SDI can be deleted.
+          Every invoice of every project. Filter by project and period. Anything not sent to SDI can be deleted.
         </p>
       </div>
       <Notices notice={notice} error={error} />
@@ -123,10 +123,10 @@ export default async function AllInvoicesPage({
       <form method="get" action="/admin/invoices" className="filters">
         {status && <input type="hidden" name="status" value={status} />}
         <div className="field">
-          <label htmlFor="tenant">Tenant</label>
-          <select id="tenant" name="tenant" defaultValue={tenantId ?? ""}>
-            <option value="">All tenants</option>
-            {tenants.map((t) => (
+          <label htmlFor="project">Project</label>
+          <select id="project" name="project" defaultValue={projectId ?? ""}>
+            <option value="">All projects</option>
+            {projects.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
@@ -146,7 +146,7 @@ export default async function AllInvoicesPage({
             Apply
           </button>
           {filtered && (
-            <Link href={href({ tenant: undefined, from: undefined, to: undefined })} className="btn secondary">
+            <Link href={href({ project: undefined, from: undefined, to: undefined })} className="btn secondary">
               Clear
             </Link>
           )}
@@ -190,7 +190,7 @@ export default async function AllInvoicesPage({
           <h2>No invoices match</h2>
           <p>
             {filtered || status
-              ? "Nothing for these filters. Widen the period or pick another tenant or status."
+              ? "Nothing for these filters. Widen the period or pick another project or status."
               : "Invoices appear here as soon as an app sends its first request to the API."}
           </p>
           {(filtered || status) && (
@@ -202,10 +202,10 @@ export default async function AllInvoicesPage({
       ) : (
         <InvoiceTable
           invoices={invoices}
-          showTenant
+          showProject
           actions={(inv) =>
-            inv.tenant ? (
-              <InvoiceActions inv={inv} tenantId={inv.tenant.id} returnTo={href({ page: page > 1 ? String(page) : undefined })} />
+            inv.project ? (
+              <InvoiceActions inv={inv} projectId={inv.project.id} returnTo={href({ page: page > 1 ? String(page) : undefined })} />
             ) : null
           }
         />

@@ -8,6 +8,10 @@ export interface FicMockOptions {
   failCreateWith?: number;
   /** Make the totals endpoint fail with this HTTP status. */
   failTotalsWith?: number;
+  /** The FIC user behind every access token (GET /user/info). */
+  user?: { id: number; name: string; email: string };
+  /** Companies the user can access (GET /user/companies). */
+  companies?: Array<{ id: number; name: string }>;
 }
 
 interface MockDocumentData {
@@ -87,7 +91,16 @@ export function installFicMock(options: FicMockOptions = {}) {
     if (url.hostname !== "fic.test") throw new Error(`Unexpected fetch to ${url.href}`);
 
     if (method === "POST" && url.pathname === "/oauth/token") {
-      const payload = body as { grant_type: string; refresh_token?: string };
+      const payload = body as { grant_type: string; refresh_token?: string; code?: string };
+      if (payload.grant_type === "authorization_code") {
+        state.validRefreshToken = `refresh-code-${payload.code}`;
+        return json(200, {
+          access_token: `access-code-${payload.code}`,
+          refresh_token: state.validRefreshToken,
+          expires_in: 86400,
+          token_type: "bearer",
+        });
+      }
       if (payload.grant_type !== "refresh_token") return json(400, { error: "unsupported_grant_type" });
       state.refreshCount += 1;
       if (options.refreshDelayMs) await new Promise((r) => setTimeout(r, options.refreshDelayMs));
@@ -97,6 +110,13 @@ export function installFicMock(options: FicMockOptions = {}) {
       const n = state.refreshCount;
       state.validRefreshToken = `refresh-${n}`;
       return json(200, { access_token: `access-${n}`, refresh_token: `refresh-${n}`, expires_in: 86400, token_type: "bearer" });
+    }
+
+    if (method === "GET" && url.pathname === "/user/info") {
+      return json(200, { data: options.user ?? { id: 77, name: "Mario Rossi", email: "mario@example.com" } });
+    }
+    if (method === "GET" && url.pathname === "/user/companies") {
+      return json(200, { data: { companies: options.companies ?? [{ id: 4242, name: "ACME srl" }] } });
     }
 
     let match = /^\/c\/(\d+)\/issued_documents\/totals$/.exec(url.pathname);

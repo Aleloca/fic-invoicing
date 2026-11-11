@@ -62,7 +62,7 @@ export interface BuiltPayload {
 export const STAMP_DUTY_ITEM_CODE = "BOLLO";
 export const STAMP_DUTY_ITEM_NAME = "Rimborso imposta di bollo";
 
-/** Thrown when the tenant configuration or the input cannot produce a valid document. */
+/** Thrown when the project configuration or the input cannot produce a valid document. */
 export class PayloadError extends Error {
   constructor(
     public readonly kind: "config" | "input",
@@ -146,7 +146,7 @@ export function centsToEuros(cents: number): number {
 
 function requireId(value: number | null, label: string): number {
   if (value === null || !Number.isInteger(value) || value <= 0) {
-    throw new PayloadError("config", `Tenant is missing ${label}`);
+    throw new PayloadError("config", `The project settings are missing ${label}`);
   }
   return value;
 }
@@ -193,8 +193,8 @@ function buildEntity(customer: CustomerData): FicEntity {
 
 /**
  * Picks the VAT type for the invoice line.
- * - FORFETTARIO: the tenant VAT type (typically a 0% "regime forfettario" / out of scope type) for every category.
- * - ORDINARIO: the tenant VAT type for Italian customers, the non-taxable type for EU / extra-EU private customers.
+ * - FORFETTARIO: the configured VAT type (typically a 0% "regime forfettario" / out of scope type) for every category.
+ * - ORDINARIO: the configured VAT type for Italian customers, the non-taxable type for EU / extra-EU private customers.
  */
 function pickVatTypeId(config: InvoiceConfig, category: CustomerCategory): number {
   if (config.fiscalRegime === "ORDINARIO" && !isItalianCategory(category)) {

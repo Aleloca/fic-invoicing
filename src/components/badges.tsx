@@ -1,14 +1,20 @@
-import type { InvoiceStatus, Tenant } from "@prisma/client";
+import type { InvoiceStatus } from "@prisma/client";
+import { connectionState, type CompanyWithAccount } from "@/lib/projects/config";
 
-export function ConnectionMark({
-  tenant,
-}: {
-  tenant: Pick<Tenant, "accessTokenEnc" | "ficCompanyId" | "ficCompanyName" | "ficNeedsReconnect">;
-}) {
-  if (tenant.ficNeedsReconnect) return <span className="mark failed">Reconnect required</span>;
-  if (!tenant.accessTokenEnc) return <span className="mark off">Not connected</span>;
-  if (!tenant.ficCompanyId) return <span className="mark attention">Company not chosen</span>;
-  return <span className="mark connected">{tenant.ficCompanyName ?? `Company #${tenant.ficCompanyId}`}</span>;
+/** How a project's company stands with Fatture in Cloud. */
+export function ConnectionMark({ company }: { company: CompanyWithAccount | null }) {
+  const state = connectionState({ company });
+  if (state === "no_company") return <span className="mark off">No company</span>;
+  if (state === "reconnect") return <span className="mark failed">Reconnect required</span>;
+  if (state === "not_connected") return <span className="mark attention">Account disconnected</span>;
+  return <span className="mark connected">{company!.name}</span>;
+}
+
+/** How a Fatture in Cloud account stands. */
+export function AccountMark({ account }: { account: CompanyWithAccount["account"] }) {
+  if (account.needsReconnect) return <span className="mark failed">Reconnect required</span>;
+  if (!account.refreshTokenEnc) return <span className="mark off">Disconnected</span>;
+  return <span className="mark connected">Connected</span>;
 }
 
 /** Plain-language meaning of each invoice status, for readers who do not know the API. */

@@ -1,4 +1,4 @@
-import { authenticateTenant } from "@/lib/auth";
+import { authenticateProject } from "@/lib/auth";
 import { ApiError, errorBody, withErrors } from "@/lib/errors";
 import { createInvoiceSchema, formatZodIssues } from "@/lib/invoices/schema";
 import { toInvoiceDto } from "@/lib/invoices/serialize";
@@ -7,7 +7,7 @@ import { createInvoice } from "@/lib/invoices/service";
 export const dynamic = "force-dynamic";
 
 export const POST = withErrors(async (request: Request): Promise<Response> => {
-  const tenant = await authenticateTenant(request);
+  const project = await authenticateProject(request);
 
   let json: unknown;
   try {
@@ -21,7 +21,7 @@ export const POST = withErrors(async (request: Request): Promise<Response> => {
     throw new ApiError(422, "validation_error", "Invalid request body", formatZodIssues(parsed.error));
   }
 
-  const outcome = await createInvoice(tenant, parsed.data);
+  const outcome = await createInvoice(project, parsed.data);
   const dto = toInvoiceDto(outcome.invoice);
   switch (outcome.kind) {
     case "existing":

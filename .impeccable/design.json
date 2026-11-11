@@ -21,7 +21,7 @@
     "typographyMeta": {
       "display": { "displayName": "Display", "purpose": "Home wordmark only; never wraps." },
       "headline": { "displayName": "Headline", "purpose": "Admin page titles." },
-      "title": { "displayName": "Title", "purpose": "Section, empty-state and tenant headings." },
+      "title": { "displayName": "Title", "purpose": "Section, empty-state and project headings." },
       "body": { "displayName": "Body", "purpose": "Running text and table cells." },
       "label": { "displayName": "Label", "purpose": "Form labels." },
       "table-head": { "displayName": "Table head", "purpose": "Uppercase column headers only." },
@@ -45,7 +45,7 @@
       { "name": "login", "value": "760px" },
       { "name": "rail", "value": "860px" },
       { "name": "home-line", "value": "900px" },
-      { "name": "tenant-row", "value": "980px" }
+      { "name": "project-row", "value": "980px" }
     ]
   },
   "components": [
@@ -54,7 +54,7 @@
       "kind": "button",
       "refersTo": "button-primary",
       "description": "Black square button for the main action of a page or form.",
-      "html": "<button class=\"ds-btn\">New tenant</button>",
+      "html": "<button class=\"ds-btn\">New project</button>",
       "css": ".ds-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 2px solid var(--ink, #111); border-radius: 0; background: var(--ink, #111); color: var(--paper, #fff); font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; font-weight: 600; line-height: 1; cursor: pointer; transition: background-color 140ms cubic-bezier(0.16,1,0.3,1), border-color 140ms cubic-bezier(0.16,1,0.3,1); } .ds-btn:hover { background: var(--ink-2, #3f3f3d); border-color: var(--ink-2, #3f3f3d); } .ds-btn:focus-visible { outline: 3px solid var(--ink, #111); outline-offset: 2px; }"
     },
     {
@@ -78,7 +78,7 @@
       "kind": "input",
       "refersTo": "input",
       "description": "Square 2px-ink field with a signal-red focus ring.",
-      "html": "<label class=\"ds-field\"><span>Tenant name</span><input class=\"ds-input\" type=\"text\" placeholder=\"My shop\"></label>",
+      "html": "<label class=\"ds-field\"><span>Project name</span><input class=\"ds-input\" type=\"text\" placeholder=\"My shop\"></label>",
       "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-field > span { font-size: 14px; font-weight: 700; color: #111; } .ds-input { min-height: 44px; padding: 10px 12px; border: 2px solid var(--ink, #111); border-radius: 0; background: var(--paper, #fff); color: var(--ink, #111); font: inherit; font-size: 15px; transition: box-shadow 140ms cubic-bezier(0.16,1,0.3,1); } .ds-input::placeholder { color: #626260; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--red, #e3001b); }"
     },
     {
@@ -86,7 +86,7 @@
       "kind": "nav",
       "refersTo": "rail",
       "description": "Signal-red rail with ruled links; current page in full white.",
-      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-brand\" href=\"#\">fic-invoicing</a><a class=\"ds-rail-link\" href=\"#\" aria-current=\"page\">Tenants</a><a class=\"ds-rail-link\" href=\"#\">Invoices</a><a class=\"ds-rail-link\" href=\"#\">API docs</a></nav>",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-brand\" href=\"#\">fic-invoicing</a><a class=\"ds-rail-link\" href=\"#\" aria-current=\"page\">Projects</a><a class=\"ds-rail-link\" href=\"#\">Invoices</a><a class=\"ds-rail-link\" href=\"#\">API docs</a></nav>",
       "css": ".ds-rail { display: flex; flex-direction: column; width: 232px; padding: 28px 24px 24px; background: var(--red, #e3001b); color: #fff; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-rail-brand { font-size: 21px; font-weight: 800; letter-spacing: -0.03em; text-decoration: none; color: #fff; margin-bottom: 40px; } .ds-rail-link { padding: 10px 0 12px; border-top: 2px solid rgb(255 255 255 / 0.35); font-weight: 600; text-decoration: none; color: #ffe3e6; transition: border-color 160ms cubic-bezier(0.16,1,0.3,1), color 160ms cubic-bezier(0.16,1,0.3,1); } .ds-rail-link:hover { color: #fff; border-top-color: rgb(255 255 255 / 0.7); } .ds-rail-link[aria-current='page'] { color: #fff; border-top-color: #fff; } .ds-rail-link:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }"
     },
     {
@@ -109,7 +109,7 @@
       "name": "Setup Line",
       "kind": "custom",
       "refersTo": "setup-line",
-      "description": "Six-station metro line from Created to Live, derived from tenant fields.",
+      "description": "Six-station metro line from Created to Live, derived from project fields.",
       "html": "<ol class=\"ds-line\" style=\"--progress: 0.6\"><li class=\"ds-stop done\"><span class=\"ds-dot\"></span>Created</li><li class=\"ds-stop done\"><span class=\"ds-dot\"></span>Connected</li><li class=\"ds-stop done\"><span class=\"ds-dot\"></span>Company</li><li class=\"ds-stop current\"><span class=\"ds-dot\"></span>Configured</li><li class=\"ds-stop\"><span class=\"ds-dot\"></span>Dry run</li><li class=\"ds-stop\"><span class=\"ds-dot\"></span>Live</li></ol>",
       "css": ".ds-line { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; font-family: 'Inter Tight', 'Helvetica Neue', Arial, sans-serif; } .ds-line::before, .ds-line::after { content: ''; position: absolute; top: 10px; height: 8px; left: calc(100% / 12); } .ds-line::before { right: calc(100% / 12); background: #e8e7e3; } .ds-line::after { width: calc((100% - 100% / 6) * var(--progress, 0)); background: #e3001b; } .ds-stop { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; color: #626260; } .ds-dot { width: 28px; height: 28px; box-sizing: border-box; border-radius: 50%; background: #fff; border: 6px solid #e8e7e3; } .ds-stop.done { color: #3f3f3d; } .ds-stop.done .ds-dot { border-color: #e3001b; } .ds-stop.current { color: #111; font-weight: 700; } .ds-stop.current .ds-dot { background: #e3001b; border-color: #e3001b; box-shadow: 0 0 0 4px #fff, 0 0 0 6px #e3001b; }"
     },
@@ -124,7 +124,7 @@
   ],
   "narrative": {
     "northStar": "Milano Moderna",
-    "overview": "The interface is a Milan metro map of the instance, in the Noorda/Unimark and Olivetti tradition: white ground, a solid signal-red rail, near-black ink, bold tight grotesque type and 2px black rules between sections. Each tenant is a line whose six stations are its setup steps, and the home page is one line from `git clone` to the first live invoice. The metro line is the system's reusable signature; everything else stays quiet so the line and the statuses read first.\n\nDensity is that of an operations panel read by accountants as well as developers: generous row padding (24px tenant rows, 14px table cells), plain-language status words always next to their marks, and no decoration that is not a wayfinding device. The scene is a daylight office, so the system is light only (`color-scheme: light`); there is no dark theme.\n\nThe world rejects the category default it was built against: grey sidebar, white cards, pastel status pills. Depth comes from rules and flat warm-grey fields, never from cards or soft shadows.",
+    "overview": "The interface is a Milan metro map of the instance, in the Noorda/Unimark and Olivetti tradition: white ground, a solid signal-red rail, near-black ink, bold tight grotesque type and 2px black rules between sections. Each project is a line whose six stations are its setup steps, and the home page is one line from `git clone` to the first live invoice. The metro line is the system's reusable signature; everything else stays quiet so the line and the statuses read first.\n\nDensity is that of an operations panel read by accountants as well as developers: generous row padding (24px project rows, 14px table cells), plain-language status words always next to their marks, and no decoration that is not a wayfinding device. The scene is a daylight office, so the system is light only (`color-scheme: light`); there is no dark theme.\n\nThe world rejects the category default it was built against: grey sidebar, white cards, pastel status pills. Depth comes from rules and flat warm-grey fields, never from cards or soft shadows.",
     "keyCharacteristics": [
       "Signal-red rail and brand, near-black ink, warm-grey fields, square corners everywhere except station dots.",
       "2px black rules as the section divider; 1px hairlines inside lists and tables.",
@@ -138,14 +138,14 @@
       { "name": "The No Wash Rule", "body": "There are no tinted or pastel backgrounds. Every notice, the confirm box and the key reveal sit on warm grey (`field`) and are told apart by their top rule: ink by default, red ink for errors and confirmations, signal red for the key reveal.", "section": "colors" },
       { "name": "The Heavy Or Plain Rule", "body": "Headings are 800; body is 400; labels and controls are 600 to 700. No light display weights.", "section": "typography" },
       { "name": "The Copy Is Mono Rule", "body": "Anything a reader copies or types into a terminal (API key, command, request, slug) is JetBrains Mono.", "section": "typography" },
-      { "name": "The Stacked Row Rule", "body": "Below 640px, invoice tables stop being tables: each row becomes a two-column grid placed by `data-col` (number left, status top right, amount right, tenant/customer/created below in ink-2, details and actions full width), separated by 2px rules.", "section": "layout" },
+      { "name": "The Stacked Row Rule", "body": "Below 640px, invoice tables stop being tables: each row becomes a two-column grid placed by `data-col` (number left, status top right, amount right, project/customer/created below in ink-2, details and actions full width), separated by 2px rules.", "section": "layout" },
       { "name": "The Ruled Not Raised Rule", "body": "Separate with a rule or a field, never with a card or shadow.", "section": "elevation" }
     ],
     "dos": [
       "**Do** divide sections with a 2px ink rule and list items with a 1px hair.",
       "**Do** pair every status colour with a mark shape and a plain word.",
       "**Do** keep notices, confirmations and the key reveal on `field` and distinguish them by their top rule.",
-      "**Do** derive any setup line from stored tenant fields, six stations, from Created to Live.",
+      "**Do** derive any setup line from stored project fields, six stations, from Created to Live.",
       "**Do** set `color-scheme: light` and design for daylight only.",
       "**Do** keep corners square; reserve round forms for stations and status dots."
     ],

@@ -3,14 +3,15 @@
 A small, self-hostable HTTP service that issues **Italian electronic invoices** (fatture elettroniche)
 through the [Fatture in Cloud](https://www.fattureincloud.it/) API v2, for **several apps at once**.
 
-Each app ("tenant") gets an API key and connects its own Fatture in Cloud company through OAuth.
+Each app is a **project** with its own API key. Projects issue from a Fatture in Cloud company and inherit
+its settings, so several apps can invoice from one company without setting it up twice.
 Your app sends the customer's billing data with every request; the service builds a correct e-invoice
 payload (fiscal statements, stamp duty, B2C/B2B routing, country names), calls Fatture in Cloud, and keeps
 an idempotent record of what happened.
 
 > **Not tax advice.** The fiscal statements, stamp duty rule and VAT handling shipped here are common
 > setups for Italian sole traders. Your situation may differ. Verify every statement and setting with your
-> accountant (commercialista) before you send real invoices, and keep tenants in dry-run mode until then.
+> accountant (commercialista) before you send real invoices, and keep projects in dry-run mode until then.
 
 ## Why
 
@@ -20,17 +21,18 @@ fiscal wording, country mapping, retries and idempotency each time. This service
 
 ## Features
 
-- Multi-tenant: one API key and one Fatture in Cloud company per tenant, one OAuth app per instance.
+- Several apps on one instance: one API key per project, one OAuth app per instance. See [Accounts, companies and projects](#accounts-companies-and-projects).
+- Several Fatture in Cloud accounts, each with any number of companies. A company holds the default invoice settings; every project using it inherits them and can customize any of them.
 - Customer categories: `IT_PRIVATE`, `EU_PRIVATE`, `EXTRAEU_PRIVATE` (B2C) and `IT_BUSINESS` (B2B with SDI code or PEC).
-- Fiscal regimes: `FORFETTARIO` and `ORDINARIO`, with preset statements (art. 1 c. 58 L. 190/2014, art. 7-ter DPR 633/72) overridable per tenant and per category.
-- €2 stamp duty (imposta di bollo) on forfettario invoices above €77.47: charged to the customer as a separate line, borne by the seller, or disabled, per tenant.
+- Fiscal regimes: `FORFETTARIO` and `ORDINARIO`, with preset statements (art. 1 c. 58 L. 190/2014, art. 7-ter DPR 633/72) overridable per company, per project and per category.
+- €2 stamp duty (imposta di bollo) on forfettario invoices above €77.47: charged to the customer as a separate line, borne by the seller, or disabled.
 - Idempotent creation (`idempotencyKey`), a PENDING row written before the FIC call, FAILED rows that can be retried.
-- Dry-run mode per tenant (default on): the invoice is validated with Fatture in Cloud's totals endpoint and nothing is created in Fatture in Cloud.
+- Dry-run mode per project (default on): the invoice is validated with Fatture in Cloud's totals endpoint and nothing is created in Fatture in Cloud.
 - Every real invoice is pre-checked with the same totals endpoint, so a payment mismatch fails before a document number is used.
 - Optional automatic transmission to SDI after creation.
 - Courtesy PDF download streamed from Fatture in Cloud.
-- OAuth tokens encrypted at rest (AES-256-GCM); token refresh serialized per tenant with a database row lock, because Fatture in Cloud rotates refresh tokens.
-- Admin panel: tenants, FIC connection and company choice, dropdowns for VAT types, payment accounts and methods, invoice lists (per tenant and across tenants) with retry and deletion of invoices not sent to SDI, and an API reference page that can be copied or downloaded as Markdown for coding agents.
+- OAuth tokens encrypted at rest (AES-256-GCM); token refresh serialized per Fatture in Cloud account with a database row lock, because Fatture in Cloud rotates refresh tokens.
+- Admin panel: projects, Fatture in Cloud accounts and companies, company defaults and per-project overrides with dropdowns for VAT types, payment accounts and methods, invoice lists (per project and across projects) with retry and deletion of invoices not sent to SDI, and an API reference page that can be copied or downloaded as Markdown for coding agents.
 - Customer personal data is not kept after success (configurable).
 
 ## Quickstart (Docker Compose)
@@ -49,10 +51,13 @@ Compose starts MySQL 8, runs `prisma migrate deploy` once, then starts the app o
 (`APP_PORT` to change it). Then:
 
 1. Open `http://localhost:3000/admin` and sign in with `ADMIN_PASSWORD`.
-2. Create a tenant. **Copy the API key**: it is shown once.
-3. On the tenant page click **Connect Fatture in Cloud**, authorize, and choose the company if your user has more than one.
-4. Choose the VAT type, payment account and payment method, set the numeration (for example `/A`) and the fiscal regime. With the default stamp duty mode (*Charged to customer*) also choose the **stamp duty VAT type** (a VAT type excluded under art. 15 DPR 633/72). Save.
-5. Send a test invoice (the tenant starts in dry-run mode). When the result is right, untick **Dry run**.
+2. Create a project. **Copy the API key**: it is shown once.
+3. On the project page click **Choose the company**, then **Connect another account** (the first time), authorize, and pick the company.
+4. Open the company's **Default settings**: choose the fiscal regime, VAT type, payment account and payment method, set the numeration (for example `/A`). With the default stamp duty mode (*Charged to customer*) also choose the **stamp duty VAT type** (a VAT type excluded under art. 15 DPR 633/72). Save.
+5. Send a test invoice (the project starts in dry-run mode). When the result is right, untick **Dry run** on the project.
+
+The next app that invoices from the same company only needs steps 2 and 5: pick the company when you create the
+project, and customize only what differs (for example the numeration `/B`).
 
 For a VPS with nginx and pm2 instead of Docker, see [docs/deploy-pm2.md](docs/deploy-pm2.md).
 
@@ -61,7 +66,7 @@ For a VPS with nginx and pm2 instead of Docker, see [docs/deploy-pm2.md](docs/de
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `DATABASE_URL` | yes | | MySQL connection string. Compose sets it for you. |
-| `ENCRYPTION_KEY` | yes | | 32 random bytes, base64. Encrypts FIC tokens. Changing it forces every tenant to reconnect. |
+| `ENCRYPTION_KEY` | yes | | 32 random bytes, base64. Encrypts FIC tokens. Changing it forces every Fatture in Cloud account to reconnect. |
 | `SESSION_SECRET` | yes | | At least 32 characters. Signs the admin session cookie and the OAuth `state`. |
 | `ADMIN_PASSWORD` | yes | | Password of the single admin user. |
 | `FIC_CLIENT_ID` | yes | | Client ID of your Fatture in Cloud OAuth app. |
@@ -89,11 +94,32 @@ For a VPS with nginx and pm2 instead of Docker, see [docs/deploy-pm2.md](docs/de
 
 4. Copy the client ID and secret into `FIC_CLIENT_ID` and `FIC_CLIENT_SECRET`.
 
-One OAuth app serves every tenant. Each tenant authorizes with the Fatture in Cloud user that owns its company.
+One OAuth app serves the whole instance. Each Fatture in Cloud account authorizes with the user that owns its companies.
+
+## Accounts, companies and projects
+
+- A **Fatture in Cloud account** is one authorization (one FIC user). Connect as many as you need from *Fatture in
+  Cloud* in the admin. Its tokens are stored once and shared by every project using one of its companies, so a
+  refresh never invalidates another project's copy, and reconnecting fixes all of them at once. Connecting the
+  same FIC user again updates its account instead of adding one.
+- A **company** is a Fatture in Cloud company of an account, set up the first time a project picks it. It holds
+  the fiscal regime and the **default invoice settings**: VAT types, payment account and method, numeration, item
+  code, SDI payment method, stamp duty, fiscal statements, automatic SDI sending.
+- A **project** is an app with its own API key, dry run and active switch. It issues from one company and
+  **inherits** every default. Any setting except the fiscal regime can be marked *Custom* for one project;
+  fiscal statements are inherited per customer category. A change to a company default reaches every project
+  that has not customized it, from their next invoice.
+- Projects on the same company with the same numeration share one number sequence. Give each its own numeration
+  (for example `/A` and `/B`) to keep them apart; the project page warns when two share one.
+- Every invoice records the company that issued it: deleting it, resending it to SDI or downloading its PDF uses
+  that company even after the project moved to another one.
+
+Projects used to be called *tenants*. The public API is unchanged, including the `tenant_not_configured` error
+code, and old `/admin/tenants/…` links redirect.
 
 ## API
 
-Base path `/api/v1`. Authenticate with `Authorization: Bearer <tenant api key>`.
+Base path `/api/v1`. Authenticate with `Authorization: Bearer <project api key>`.
 The full contract is in [openapi.yaml](openapi.yaml). Errors always look like:
 
 ```json
@@ -151,11 +177,11 @@ curl -X POST https://invoices.example.com/api/v1/invoices \
 
 Behaviour:
 
-- **Idempotency.** The same `idempotencyKey` for the same tenant returns the existing invoice with `200` and never calls Fatture in Cloud twice. A FAILED invoice is returned as is; use the retry endpoint. A `DELETED` invoice is also returned as is, with `"status": "DELETED"`: it is not a valid invoice any more, so check `status` and use a new key to invoice again.
+- **Idempotency.** The same `idempotencyKey` for the same project returns the existing invoice with `200` and never calls Fatture in Cloud twice. A FAILED invoice is returned as is; use the retry endpoint. A `DELETED` invoice is also returned as is, with `"status": "DELETED"`: it is not a valid invoice any more, so check `status` and use a new key to invoice again.
 - **Totals pre-check.** Before creating a document the service sends the same payload to Fatture in Cloud's `POST /c/{company_id}/issued_documents/totals`, which computes the totals without creating anything. If the recorded payment does not equal the amount due computed by Fatture in Cloud, the invoice is `FAILED` with both amounts in `errorMessage` and no document number is consumed.
 - **Failures.** If Fatture in Cloud rejects the invoice (totals or creation), the row becomes `FAILED` and the response is `502` with the invoice plus `"error": { "code": "fic_error", ... }`.
-- **Dry run.** `"dryRun": true` forces a dry run. `false` cannot turn off a tenant that is in dry-run mode. Fatture in Cloud has no dry run on document creation (its `dry_run` option is ignored and the document is created), so a dry run only calls the totals endpoint: nothing is created in Fatture in Cloud and nothing is sent to SDI. A dry run that passes is `ISSUED` with `dryRun: true`, `ficDocumentId: null` and `number: null`; a payment mismatch or a Fatture in Cloud error makes it `FAILED`. The totals endpoint does not run every check of document creation, so a passing dry run is a strong but not complete validation.
-- **Not ready.** A tenant that is not connected, needs reconnection or misses configuration gets `409` (`fic_not_connected`, `fic_reconnect_required`, `tenant_not_configured`) and no invoice row is created.
+- **Dry run.** `"dryRun": true` forces a dry run. `false` cannot turn off a project that is in dry-run mode. Fatture in Cloud has no dry run on document creation (its `dry_run` option is ignored and the document is created), so a dry run only calls the totals endpoint: nothing is created in Fatture in Cloud and nothing is sent to SDI. A dry run that passes is `ISSUED` with `dryRun: true`, `ficDocumentId: null` and `number: null`; a payment mismatch or a Fatture in Cloud error makes it `FAILED`. The totals endpoint does not run every check of document creation, so a passing dry run is a strong but not complete validation.
+- **Not ready.** A project without a company, whose account is disconnected, needs reconnection or misses configuration gets `409` (`fic_not_connected`, `fic_reconnect_required`, `tenant_not_configured`) and no invoice row is created.
 - `paidAt` (`YYYY-MM-DD`) sets the document and payment date; default is today in Europe/Rome.
 
 Other categories:
@@ -181,12 +207,12 @@ curl https://invoices.example.com/api/v1/health
 ```
 
 - `pdf` returns `409` when the invoice is not ISSUED or is a dry run (nothing exists in Fatture in Cloud).
-- `retry` works on `FAILED` invoices (and on ISSUED invoices whose automatic SDI send failed). It uses the tenant's current configuration. It returns `409` for other statuses (including `DELETED`) or when the payload was purged.
-- Tenants only see their own invoices: another tenant's id returns `404`.
+- `retry` works on `FAILED` invoices (and on ISSUED invoices whose automatic SDI send failed). It uses the project's current company and settings. It returns `409` for other statuses (including `DELETED`) or when the payload was purged.
+- Projects only see their own invoices: another project's id returns `404`.
 
 ### Deleted invoices
 
-An admin can delete an invoice from the admin panel (*Invoices*, or tenant → *Invoices*, then *Delete* and
+An admin can delete an invoice from the admin panel (*Invoices*, or project → *Invoices*, then *Delete* and
 *Confirm delete*). Any invoice **not sent to SDI** can be deleted, except a `PENDING` one still being processed;
 once an e-invoice is transmitted, issue a credit note in Fatture in Cloud instead.
 
@@ -204,14 +230,14 @@ Deleting an invoice that is not the latest of its numeration leaves a gap in the
 
 | Regime | Category | VAT type used | Statement preset | Stamp duty |
 | --- | --- | --- | --- | --- |
-| FORFETTARIO | IT_PRIVATE, IT_BUSINESS | tenant VAT type | art. 1 c. 58 L. 190/2014 (regime forfettario) | €2 if amount > €77.47 |
-| FORFETTARIO | EU_PRIVATE | tenant VAT type | art. 7-ter DPR 633/72, private EU customer | €2 if amount > €77.47 |
-| FORFETTARIO | EXTRAEU_PRIVATE | tenant VAT type | art. 7-ter DPR 633/72, extra-EU customer | €2 if amount > €77.47 |
-| ORDINARIO | IT_PRIVATE, IT_BUSINESS | tenant VAT type (e.g. 22%), `amountCents` is VAT-inclusive | none | no |
-| ORDINARIO | EU_PRIVATE, EXTRAEU_PRIVATE | tenant non-taxable VAT type | art. 7-ter presets | no |
+| FORFETTARIO | IT_PRIVATE, IT_BUSINESS | VAT type | art. 1 c. 58 L. 190/2014 (regime forfettario) | €2 if amount > €77.47 |
+| FORFETTARIO | EU_PRIVATE | VAT type | art. 7-ter DPR 633/72, private EU customer | €2 if amount > €77.47 |
+| FORFETTARIO | EXTRAEU_PRIVATE | VAT type | art. 7-ter DPR 633/72, extra-EU customer | €2 if amount > €77.47 |
+| ORDINARIO | IT_PRIVATE, IT_BUSINESS | VAT type (e.g. 22%), `amountCents` is VAT-inclusive | none | no |
+| ORDINARIO | EU_PRIVATE, EXTRAEU_PRIVATE | non-taxable VAT type | art. 7-ter presets | no |
 
 - Statements are printed on the invoice line and in the notes. Override them per category in the admin panel.
-- The €2 stamp duty follows the tenant's **stamp duty mode** (admin panel → *Stamp duty*). It only applies to FORFETTARIO invoices whose `amountCents` is above €77.47:
+- The €2 stamp duty follows the **stamp duty mode** (company default or project override, *Stamp duty* in the admin). It only applies to FORFETTARIO invoices whose `amountCents` is above €77.47:
 
   On e-invoices Fatture in Cloud does **not** add `stamp_duty` to the amount due: the field only declares
   that the (virtual) stamp was paid. Charging it to the customer therefore needs a separate invoice line.
@@ -224,11 +250,11 @@ Deleting an invoice that is not the latest of its numeration leaves a gap in the
 
   - `CHARGED_TO_CUSTOMER`: the customer pays the €2 on top, as a second invoice line with the tenant's **stamp duty VAT type** (choose a VAT type excluded under art. 15 DPR 633/72 in the admin panel). Use it only if your checkout actually collects `amount + €2`. When the stamp applies and no stamp duty VAT type is set, the API returns `409 tenant_not_configured`.
   - `INCLUDED`: the seller bears the stamp. The customer pays exactly `amountCents` and the invoice total is `amountCents`; the €2 is declared on the invoice and paid by the seller to the tax authority. **Recommended for payment-processor flows with fixed prices** (Stripe Checkout, Paddle, app stores): the invoice total matches the charge exactly.
-  - `DISABLED`: no stamp duty at all, for tenants that handle it elsewhere.
+  - `DISABLED`: no stamp duty at all, for companies that handle it elsewhere.
 
   In every mode the API response keeps your `amountCents` and reports `stampDutyCents` (0 or 200, the declared stamp). Check the choice with your accountant.
 - `IT_BUSINESS` invoices are B2B: the customer's partita IVA, SDI recipient code (`0000000` + PEC when missing).
-- Other invoices are B2C, with the SDI payment method from the tenant (`MP08`, payment card, by default).
+- Other invoices are B2C, with the configured SDI payment method (`MP08`, payment card, by default).
 - Country names are mapped from ISO codes to the Italian names Fatture in Cloud expects.
 
 ## Data and privacy
@@ -244,11 +270,11 @@ The customer data then lives in Fatture in Cloud, as with any e-invoice.
 
 ## Operations notes
 
-- **Token refresh.** Access tokens are refreshed when less than 5 minutes remain. The refresh runs inside a transaction holding `SELECT ... FOR UPDATE` on the tenant row, so concurrent requests never use the same (rotating) refresh token twice. If Fatture in Cloud rejects the refresh token, the tenant is flagged **reconnect required** in the admin panel and API calls return `409 fic_reconnect_required` until an admin reconnects.
+- **Token refresh.** Access tokens are refreshed when less than 5 minutes remain. The refresh runs inside a transaction holding `SELECT ... FOR UPDATE` on the Fatture in Cloud account row, so concurrent requests (from any of its projects) never use the same (rotating) refresh token twice. If Fatture in Cloud rejects the refresh token, the account is flagged **reconnect required** in the admin panel, with every project using it, and API calls return `409 fic_reconnect_required` until an admin reconnects.
 - **Stuck PENDING rows.** A PENDING row older than a few minutes means the process stopped during the FIC call. Check Fatture in Cloud before doing anything: the document may exist.
 - **Retries and duplicates.** Fatture in Cloud has no idempotency key. If a create call times out after FIC saved the document, a retry can create a second document. Check FIC before retrying invoices that failed with a timeout.
 - **Rate limit** is in memory and per process.
-- **SDI.** Creating an e-invoice in Fatture in Cloud does not transmit it. Enable *Send e-invoices to SDI automatically* per tenant, or send them from Fatture in Cloud.
+- **SDI.** Creating an e-invoice in Fatture in Cloud does not transmit it. Enable *Send to SDI* on the company (or per project), or send them from Fatture in Cloud.
 
 ## Development
 

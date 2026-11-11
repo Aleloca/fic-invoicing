@@ -6,7 +6,7 @@ export const STAMP_DUTY_CENTS = 200;
 export const STAMP_DUTY_THRESHOLD_CENTS = 7747;
 
 /**
- * Stamp duty for an invoice: €2 when the tenant is FORFETTARIO, the tenant mode
+ * Stamp duty for an invoice: €2 when the company is FORFETTARIO, the stamp duty mode
  * is not `DISABLED` and the caller's amount is strictly greater than €77.47.
  */
 export function computeStampDutyCents(regime: FiscalRegime, mode: StampDutyMode, amountCents: number): number {

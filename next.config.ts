@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  async redirects() {
+    // Projects used to be called tenants.
+    return [
+      { source: "/admin/tenants", destination: "/admin", permanent: true },
+      { source: "/admin/tenants/:path*", destination: "/admin/projects/:path*", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {
