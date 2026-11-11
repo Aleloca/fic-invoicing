@@ -1,17 +1,27 @@
+import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isAdmin } from "@/lib/admin-session";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage() {
   if (await isAdmin()) redirect("/admin");
   return (
-    <main className="container narrow">
-      <h1>fic-invoicing admin</h1>
-      <div className="card">
-        <LoginForm />
+    <div className="login">
+      <div className="login-brand">
+        <Link href="/" className="name">
+          fic-
+          <br />
+          invoicing
+        </Link>
+        <p>Italian e-invoices through Fatture in Cloud, for every app on this instance.</p>
       </div>
-    </main>
+      <main className="login-form">
+        <LoginForm />
+      </main>
+    </div>
   );
 }

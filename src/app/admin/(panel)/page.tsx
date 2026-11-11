@@ -1,61 +1,94 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { ArrowRight, Plus } from "@/components/icons";
 import { Notices } from "@/components/notices";
+import { SetupLine, setupProgress } from "@/components/setup-line";
 import { prisma } from "@/lib/prisma";
-import { ConnectionBadge } from "@/components/badges";
+
+export const metadata: Metadata = { title: "Tenants" };
 
 export default async function TenantsPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
-  const tenants = await prisma.tenant.findMany({
-    orderBy: { createdAt: "asc" },
-    include: { _count: { select: { invoices: true } } },
-  });
+  const [tenants, failed] = await Promise.all([
+    prisma.tenant.findMany({
+      orderBy: { createdAt: "asc" },
+      include: { _count: { select: { invoices: true } } },
+    }),
+    prisma.invoice.groupBy({ by: ["tenantId"], where: { status: "FAILED" }, _count: { _all: true } }),
+  ]);
+  const failedBy = new Map(failed.map((f) => [f.tenantId, f._count._all]));
 
   return (
     <>
-      <div className="row spread">
+      <div className="page-head">
         <h1>Tenants</h1>
-        <Link className="button" href="/admin/tenants/new">
-          New tenant
-        </Link>
+        <div className="actions">
+          <Link className="btn" href="/admin/tenants/new">
+            <Plus />
+            New tenant
+          </Link>
+        </div>
+        <p className="sub">One tenant per app. Each line shows how far its setup has come, from created to live.</p>
       </div>
       <Notices error={error} />
-      <div className="card table-wrap">
-        {tenants.length === 0 ? (
-          <p className="muted">No tenants yet. Create one to get an API key.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Slug</th>
-                <th>Fatture in Cloud</th>
-                <th>Mode</th>
-                <th>Invoices</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tenants.map((t) => (
-                <tr key={t.id}>
-                  <td>
-                    <Link href={`/admin/tenants/${t.id}`}>{t.name}</Link>
-                    {!t.active && <span className="badge muted"> disabled</span>}
-                  </td>
-                  <td>
+
+      {tenants.length === 0 ? (
+        <div className="empty">
+          <h2>No tenants yet</h2>
+          <p>
+            Create a tenant for each app that issues invoices. You get its API key, then connect it to a Fatture in
+            Cloud company and test it in dry run.
+          </p>
+          <Link className="btn" href="/admin/tenants/new">
+            <Plus />
+            Create the first tenant
+          </Link>
+        </div>
+      ) : (
+        <ul className="tenant-rows">
+          {tenants.map((t) => {
+            const progress = setupProgress(t);
+            const failedCount = failedBy.get(t.id) ?? 0;
+            return (
+              <li key={t.id} className="tenant-row">
+                <div>
+                  <Link href={`/admin/tenants/${t.id}`} className="tenant-name">
+                    {t.name}
+                  </Link>
+                  <div className="tenant-meta">
                     <code>{t.slug}</code>
-                  </td>
-                  <td>
-                    <ConnectionBadge tenant={t} />
-                  </td>
-                  <td>{t.dryRun ? <span className="badge warn">dry run</span> : <span className="badge ok">live</span>}</td>
-                  <td>
-                    <Link href={`/admin/tenants/${t.id}/invoices`}>{t._count.invoices}</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+                    <span>{t.fiscalRegime === "FORFETTARIO" ? "Forfettario" : "Ordinario"}</span>
+                    {t.ficCompanyName && <span>{t.ficCompanyName}</span>}
+                    {!t.active && <span className="tag">Disabled</span>}
+                  </div>
+                  {failedCount > 0 && (
+                    <Link
+                      href={`/admin/tenants/${t.id}/invoices?status=FAILED`}
+                      className="mark failed tenant-failed"
+                    >
+                      {failedCount} failed {failedCount === 1 ? "invoice" : "invoices"}
+                    </Link>
+                  )}
+                  {progress.next && (
+                    <Link
+                      href={progress.next.href}
+                      className={`tenant-next${progress.next.problem ? " problem" : ""}`}
+                    >
+                      {progress.next.label}
+                      <ArrowRight />
+                    </Link>
+                  )}
+                </div>
+                <SetupLine progress={progress} />
+                <Link href={`/admin/tenants/${t.id}/invoices`} className="tenant-count">
+                  <strong>{t._count.invoices}</strong>
+                  <span>{t._count.invoices === 1 ? "invoice" : "invoices"}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </>
   );
 }
