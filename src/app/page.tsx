@@ -7,8 +7,8 @@ const REPO = "https://github.com/Aleloca/fic-invoicing";
 const STOPS: { title: string; text?: string; command?: string; shown?: string }[] = [
   { title: "Clone", command: `git clone ${REPO}.git`, shown: "git clone …/fic\u2011invoicing.git", text: "Then copy .env.example to .env and fill in the secrets." },
   { title: "Start", command: "docker compose up -d --build", text: "MySQL, migrations and the app on port 3000." },
-  { title: "Create a tenant", text: "One per app, in the admin. Copy its API key: it is shown once." },
-  { title: "Connect", text: "Authorize Fatture in Cloud, choose the company, set VAT, payment and numeration." },
+  { title: "Create a project", text: "One per app, in the admin. Copy its API key: it is shown once." },
+  { title: "Connect", text: "Authorize Fatture in Cloud, choose the company, set its VAT, payment and numeration." },
   { title: "Dry run", text: "Invoices are validated against Fatture in Cloud's totals. Nothing is created." },
   { title: "Live", command: "POST /api/v1/invoices", text: "Untick dry run. Every sale becomes an e-invoice." },
 ];
@@ -31,14 +31,14 @@ const HANDLES: { title: string; items: React.ReactNode[] }[] = [
     title: "Fiscal rules",
     items: [
       <>Forfettario and ordinario regimes.</>,
-      <>Preset statements (art. 1 c. 58 L. 190/2014, art. 7-ter DPR 633/72), overridable per tenant and category.</>,
+      <>Preset statements (art. 1 c. 58 L. 190/2014, art. 7-ter DPR 633/72), overridable per company, project and category.</>,
       <>€2 stamp duty above €77.47: charged to the customer, borne by you, or disabled.</>,
     ],
   },
   {
     title: "Safety",
     items: [
-      <>Dry run per tenant, on by default.</>,
+      <>Dry run per project, on by default.</>,
       <>Every real invoice is pre-checked against the totals endpoint, so a mismatch fails before a number is used.</>,
       <>
         Idempotent creation with <code>idempotencyKey</code>; failed invoices can be retried.
@@ -48,7 +48,8 @@ const HANDLES: { title: string; items: React.ReactNode[] }[] = [
   {
     title: "Operations",
     items: [
-      <>OAuth tokens encrypted at rest, refresh serialized per tenant.</>,
+      <>Several Fatture in Cloud accounts and companies; projects on one company share its settings.</>,
+      <>OAuth tokens encrypted at rest, refresh serialized per account.</>,
       <>Optional automatic sending to SDI; courtesy PDF download.</>,
       <>Customer personal data dropped after success (configurable).</>,
     ],
@@ -165,8 +166,9 @@ export default function Home() {
               wording, country mapping, retries and idempotency each time. This service does it once.
             </p>
             <p>
-              Each app is a <strong>tenant</strong> with its own API key and its own Fatture in Cloud company. Your app
-              sends the customer&apos;s billing data; the service builds a correct e-invoice payload, calls Fatture in
+              Each app is a <strong>project</strong> with its own API key. Projects issue from a Fatture in Cloud company
+              and inherit its settings, so several apps can invoice from one company without setting it up twice. Your
+              app sends the customer&apos;s billing data; the service builds a correct e-invoice payload, calls Fatture in
               Cloud and keeps an idempotent record of what happened. One OAuth app serves the whole instance.
             </p>
           </div>
@@ -192,8 +194,8 @@ export default function Home() {
           <h2 id="api-title">API</h2>
           <div className="home-prose">
             <p>
-              Base path <code>/api/v1</code>, authenticated with <code>Authorization: Bearer</code> and the tenant&apos;s
-              API key. The full contract is{" "}
+              Base path <code>/api/v1</code>, authenticated with <code>Authorization: Bearer</code> and the
+              project&apos;s API key. The full contract is{" "}
               <a href={`${REPO}/blob/main/openapi.yaml`}>openapi.yaml</a>.
             </p>
           </div>
@@ -220,7 +222,7 @@ export default function Home() {
           <p>
             The fiscal statements, the stamp duty rule and the VAT handling are common setups for Italian sole traders.
             Your situation may differ. Verify every statement and setting with your accountant before you send real
-            invoices, and keep tenants in dry run until then.
+            invoices, and keep projects in dry run until then.
           </p>
         </section>
       </main>

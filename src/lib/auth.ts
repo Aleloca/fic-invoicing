@@ -1,8 +1,8 @@
-import type { Tenant } from "@prisma/client";
 import { hashApiKey } from "./api-key";
 import { env } from "./env";
 import { ApiError } from "./errors";
 import { prisma } from "./prisma";
+import { PROJECT_INCLUDE, type ProjectWithCompany } from "./projects/config";
 import { RateLimiter } from "./rate-limit";
 
 let limiter: RateLimiter | null = null;
@@ -13,7 +13,7 @@ export function apiRateLimiter(): RateLimiter {
 }
 
 /** Authenticates a public API request with `Authorization: Bearer <api key>`. */
-export async function authenticateTenant(request: Request): Promise<Tenant> {
+export async function authenticateProject(request: Request): Promise<ProjectWithCompany> {
   const header = request.headers.get("authorization") ?? "";
   const match = /^Bearer\s+(\S+)$/i.exec(header);
   if (!match) {
@@ -26,8 +26,8 @@ export async function authenticateTenant(request: Request): Promise<Tenant> {
     throw new ApiError(429, "rate_limited", `Too many requests, retry in ${retryAfter}s`, { retryAfterSeconds: retryAfter });
   }
 
-  const tenant = await prisma.tenant.findUnique({ where: { apiKeyHash: keyHash } });
-  if (!tenant) throw new ApiError(401, "unauthorized", "Invalid API key");
-  if (!tenant.active) throw new ApiError(403, "forbidden", "This tenant is disabled");
-  return tenant;
+  const project = await prisma.project.findUnique({ where: { apiKeyHash: keyHash }, include: PROJECT_INCLUDE });
+  if (!project) throw new ApiError(401, "unauthorized", "Invalid API key");
+  if (!project.active) throw new ApiError(403, "forbidden", "This project is disabled");
+  return project;
 }

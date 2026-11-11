@@ -13,6 +13,8 @@ import { ApiError } from "@/lib/errors";
 import { buildAuthorizeUrl, listUserCompanies } from "@/lib/fic/client";
 import { getFicAccess } from "@/lib/fic/tokens";
 import { CUSTOMER_CATEGORIES, FISCAL_REGIMES, STAMP_DUTY_MODES } from "@/lib/fiscal/types";
+import { ensureCompany } from "@/lib/projects/accounts";
+import { OVERRIDABLE, PROJECT_INCLUDE, type OverridableKey } from "@/lib/projects/config";
 import { deleteInvoice, retryInvoice } from "@/lib/invoices/service";
 import { createOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
@@ -22,7 +24,7 @@ import { slugify } from "@/lib/slug";
 export interface FormState {
   error?: string;
   apiKey?: string;
-  tenantId?: string;
+  projectId?: string;
 }
 
 const loginLimiter = new RateLimiter(10);
@@ -41,20 +43,24 @@ export async function logoutAction(): Promise<void> {
   redirect("/admin/login");
 }
 
-export async function createTenantAction(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function createProjectAction(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
   const name = String(formData.get("name") ?? "").trim();
   const slug = slugify(String(formData.get("slug") ?? "") || name);
   if (!name || name.length > 100) return { error: "Name is required (max 100 characters)." };
   if (!slug) return { error: "Slug must contain letters or digits." };
+  const companyId = String(formData.get("companyId") ?? "") || null;
+  if (companyId && !(await prisma.company.findUnique({ where: { id: companyId }, select: { id: true } }))) {
+    return { error: "Unknown company." };
+  }
 
   const key = generateApiKey();
   try {
-    const tenant = await prisma.tenant.create({
-      data: { name, slug, apiKeyHash: key.hash, apiKeyPrefix: key.displayPrefix },
+    const project = await prisma.project.create({
+      data: { name, slug, apiKeyHash: key.hash, apiKeyPrefix: key.displayPrefix, companyId },
     });
     revalidatePath("/admin");
-    return { apiKey: key.plaintext, tenantId: tenant.id };
+    return { apiKey: key.plaintext, projectId: project.id };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return { error: `Slug "${slug}" is already in use.` };
@@ -65,54 +71,94 @@ export async function createTenantAction(_prev: FormState, formData: FormData): 
 
 export async function rotateApiKeyAction(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireAdmin();
-  const tenantId = String(formData.get("tenantId") ?? "");
-  const exists = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
-  if (!exists) return { error: "Unknown tenant." };
+  const projectId = String(formData.get("projectId") ?? "");
+  const exists = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+  if (!exists) return { error: "Unknown project." };
   const key = generateApiKey();
-  await prisma.tenant.update({
-    where: { id: tenantId },
+  await prisma.project.update({
+    where: { id: projectId },
     data: { apiKeyHash: key.hash, apiKeyPrefix: key.displayPrefix },
   });
-  revalidatePath(`/admin/tenants/${tenantId}`);
-  return { apiKey: key.plaintext, tenantId };
+  revalidatePath(`/admin/projects/${projectId}`);
+  return { apiKey: key.plaintext, projectId };
 }
 
-export async function startFicConnectAction(tenantId: string): Promise<void> {
+/** Starts the FIC authorization for a new account, optionally returning to a project. */
+export async function connectAccountAction(projectId: string | null): Promise<void> {
   await requireAdmin();
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
-  if (!tenant) redirect("/admin");
-  redirect(buildAuthorizeUrl(createOAuthState(tenant.id)));
+  redirect(buildAuthorizeUrl(createOAuthState(projectId ? { projectId } : {})));
 }
 
-export async function disconnectFicAction(tenantId: string): Promise<void> {
+/** Starts the FIC authorization again for an existing account (expired or revoked tokens). */
+export async function reconnectAccountAction(accountId: string, projectId: string | null): Promise<void> {
   await requireAdmin();
-  await prisma.tenant.update({
-    where: { id: tenantId },
-    data: {
-      accessTokenEnc: null,
-      refreshTokenEnc: null,
-      tokenExpiresAt: null,
-      connectedAt: null,
-      ficCompanyId: null,
-      ficCompanyName: null,
-      ficNeedsReconnect: false,
-      ficLastError: null,
-    },
+  const account = await prisma.ficAccount.findUnique({ where: { id: accountId }, select: { id: true } });
+  if (!account) redirect("/admin/fic?error=oauth_unknown_account");
+  redirect(buildAuthorizeUrl(createOAuthState(projectId ? { accountId, projectId } : { accountId })));
+}
+
+export async function disconnectAccountAction(accountId: string): Promise<void> {
+  await requireAdmin();
+  await prisma.ficAccount.update({
+    where: { id: accountId },
+    data: { accessTokenEnc: null, refreshTokenEnc: null, tokenExpiresAt: null, needsReconnect: false, lastError: null },
   });
-  redirect(`/admin/tenants/${tenantId}?notice=disconnected`);
+  redirect(`/admin/fic?notice=disconnected`);
 }
 
-export async function selectCompanyAction(tenantId: string, formData: FormData): Promise<void> {
+/** Removes an account and its companies, when no project uses them and no invoice was issued from them. */
+export async function removeAccountAction(accountId: string): Promise<void> {
   await requireAdmin();
-  const companyId = Number(formData.get("companyId"));
-  const access = await getFicAccess(tenantId);
-  const company = (await listUserCompanies(access.accessToken)).find((c) => c.id === companyId);
-  if (!company) redirect(`/admin/tenants/${tenantId}/company?error=unknown_company`);
-  await prisma.tenant.update({
-    where: { id: tenantId },
-    data: { ficCompanyId: company.id, ficCompanyName: company.name, connectedAt: new Date() },
+  const inUse = await prisma.company.count({
+    where: { accountId, OR: [{ projects: { some: {} } }, { invoices: { some: {} } }] },
   });
-  redirect(`/admin/tenants/${tenantId}?notice=connected`);
+  if (inUse > 0) redirect(`/admin/fic?error=account_in_use`);
+  await prisma.$transaction([
+    prisma.company.deleteMany({ where: { accountId } }),
+    prisma.ficAccount.delete({ where: { id: accountId } }),
+  ]);
+  redirect(`/admin/fic?notice=account_removed`);
+}
+
+export async function renameAccountAction(accountId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const label = String(formData.get("label") ?? "").trim().slice(0, 100);
+  if (label) await prisma.ficAccount.update({ where: { id: accountId }, data: { label } });
+  redirect(`/admin/fic?notice=saved`);
+}
+
+/** Removes a company row that no project uses and no invoice was issued from. */
+export async function removeCompanyAction(companyId: string): Promise<void> {
+  await requireAdmin();
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { _count: { select: { projects: true, invoices: true } } },
+  });
+  if (!company) redirect("/admin/fic");
+  if (company._count.projects > 0 || company._count.invoices > 0) redirect(`/admin/companies/${companyId}?error=company_in_use`);
+  await prisma.company.delete({ where: { id: companyId } });
+  redirect(`/admin/fic?notice=company_removed`);
+}
+
+/** Points a project at a FIC company (`<accountId>:<ficCompanyId>`), creating the company row on first use. */
+export async function selectCompanyAction(projectId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const [accountId, rawId] = String(formData.get("company") ?? "").split(":");
+  const ficCompanyId = Number(rawId);
+  const back = `/admin/projects/${projectId}/company`;
+  if (!accountId || !Number.isInteger(ficCompanyId)) redirect(`${back}?error=unknown_company`);
+
+  let token: string;
+  try {
+    token = await getFicAccess(accountId);
+  } catch (error) {
+    redirect(`${back}?error=${encodeURIComponent(error instanceof Error ? error.message : "unknown_company")}`);
+  }
+  const ficCompany = (await listUserCompanies(token)).find((c) => c.id === ficCompanyId);
+  if (!ficCompany) redirect(`${back}?error=unknown_company`);
+  const company = await ensureCompany(accountId, ficCompany);
+  await prisma.project.update({ where: { id: projectId }, data: { companyId: company.id } });
+  redirect(`/admin/projects/${projectId}?notice=connected`);
 }
 
 const optionalId = z
@@ -128,96 +174,133 @@ const optionalText = (max: number) =>
     .max(max)
     .transform((v) => (v === "" ? null : v));
 
-const configSchema = z.object({
-  name: z.string().trim().min(1).max(100),
+const eiPaymentMethod = z
+  .string()
+  .trim()
+  .regex(/^MP\d{2}$/, "Must be an SDI payment code like MP08");
+
+const companySchema = z.object({
+  fiscalRegime: z.enum(FISCAL_REGIMES),
   vatTypeId: optionalId,
   nonTaxableVatTypeId: optionalId,
   paymentAccountId: optionalId,
   paymentMethodId: optionalId,
   numeration: optionalText(20),
   itemCode: optionalText(50),
-  fiscalRegime: z.enum(FISCAL_REGIMES),
+  eiPaymentMethod,
   stampDutyMode: z.enum(STAMP_DUTY_MODES),
   stampDutyVatTypeId: optionalId,
-  eiPaymentMethod: z
-    .string()
-    .trim()
-    .regex(/^MP\d{2}$/, "Must be an SDI payment code like MP08"),
 });
 
-export async function updateTenantConfigAction(tenantId: string, formData: FormData): Promise<void> {
-  await requireAdmin();
-  const field = (name: string) => String(formData.get(name) ?? "");
-  const parsed = configSchema.safeParse({
-    name: field("name"),
-    vatTypeId: field("vatTypeId"),
-    nonTaxableVatTypeId: field("nonTaxableVatTypeId"),
-    paymentAccountId: field("paymentAccountId"),
-    paymentMethodId: field("paymentMethodId"),
-    numeration: field("numeration"),
-    itemCode: field("itemCode"),
-    fiscalRegime: field("fiscalRegime"),
-    stampDutyMode: field("stampDutyMode"),
-    stampDutyVatTypeId: field("stampDutyVatTypeId"),
-    eiPaymentMethod: field("eiPaymentMethod"),
-  });
-  if (!parsed.success) {
-    const message = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    redirect(`/admin/tenants/${tenantId}?error=${encodeURIComponent(message)}`);
-  }
-
+/** Per-category statement texts from the form; empty fields are left out (inherit / preset). */
+function statementsFrom(formData: FormData) {
   const statements: Record<string, string> = {};
   for (const category of CUSTOMER_CATEGORIES) {
-    const value = field(`statement_${category}`).trim();
+    const value = String(formData.get(`statement_${category}`) ?? "").trim();
     if (value) statements[category] = value.slice(0, 2000);
   }
+  return Object.keys(statements).length > 0 ? statements : Prisma.DbNull;
+}
 
-  await prisma.tenant.update({
-    where: { id: tenantId },
+function issuesMessage(error: z.ZodError): string {
+  return error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+}
+
+export async function updateCompanyAction(companyId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const field = (name: string) => String(formData.get(name) ?? "");
+  const parsed = companySchema.safeParse(Object.fromEntries(Object.keys(companySchema.shape).map((k) => [k, field(k)])));
+  if (!parsed.success) redirect(`/admin/companies/${companyId}?error=${encodeURIComponent(issuesMessage(parsed.error))}`);
+
+  await prisma.company.update({
+    where: { id: companyId },
+    data: { ...parsed.data, fiscalStatements: statementsFrom(formData), sendToSdi: formData.get("sendToSdi") === "on" },
+  });
+  redirect(`/admin/companies/${companyId}?notice=saved`);
+}
+
+/** Overrides keep "" for an explicitly empty text, so it does not fall back to the company value. */
+const overrideText = (max: number) => z.string().trim().max(max);
+
+const overrideSchemas = {
+  vatTypeId: optionalId,
+  nonTaxableVatTypeId: optionalId,
+  paymentAccountId: optionalId,
+  paymentMethodId: optionalId,
+  numeration: overrideText(20),
+  itemCode: overrideText(50),
+  eiPaymentMethod,
+  stampDutyMode: z.enum(STAMP_DUTY_MODES),
+  stampDutyVatTypeId: optionalId,
+  sendToSdi: z.string().transform((v) => v === "on"),
+} satisfies Record<OverridableKey, z.ZodType>;
+
+export async function updateProjectAction(projectId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const back = `/admin/projects/${projectId}`;
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name || name.length > 100) redirect(`${back}?error=${encodeURIComponent("name: required, max 100 characters")}`);
+
+  // Each setting is either inherited (null) or customized, when its "custom" box is ticked.
+  const overrides: Record<string, unknown> = {};
+  const problems: string[] = [];
+  for (const key of OVERRIDABLE) {
+    if (formData.get(`custom_${key}`) !== "on") {
+      overrides[key] = null;
+      continue;
+    }
+    const parsed = overrideSchemas[key].safeParse(String(formData.get(key) ?? ""));
+    if (parsed.success) overrides[key] = parsed.data;
+    else problems.push(`${key}: ${parsed.error.issues[0]?.message ?? "invalid"}`);
+  }
+  if (problems.length > 0) redirect(`${back}?error=${encodeURIComponent(problems.join("; "))}`);
+
+  await prisma.project.update({
+    where: { id: projectId },
     data: {
-      ...parsed.data,
-      fiscalStatements: Object.keys(statements).length > 0 ? statements : Prisma.DbNull,
-      sendToSdi: formData.get("sendToSdi") === "on",
+      name,
+      ...overrides,
+      fiscalStatements: statementsFrom(formData),
       dryRun: formData.get("dryRun") === "on",
       active: formData.get("active") === "on",
     },
   });
-  redirect(`/admin/tenants/${tenantId}?notice=saved`);
+  redirect(`${back}?notice=saved`);
 }
 
 /** Where an invoice action returns: the page it was sent from, when it is an admin invoices list. */
-function invoicesReturnPath(tenantId: string, formData: FormData | undefined, notice: string): string {
+function invoicesReturnPath(projectId: string, formData: FormData | undefined, notice: string): string {
   const raw = String(formData?.get("returnTo") ?? "");
-  const base = /^\/admin\/(invoices|tenants\/[\w-]+\/invoices)(\?[\w=&%.:-]*)?$/.test(raw)
+  const base = /^\/admin\/(invoices|projects\/[\w-]+\/invoices)(\?[\w=&%.:-]*)?$/.test(raw)
     ? raw
-    : `/admin/tenants/${tenantId}/invoices`;
+    : `/admin/projects/${projectId}/invoices`;
   const url = new URL(base, "http://local");
   url.searchParams.set("notice", notice);
   return `${url.pathname}${url.search}`;
 }
 
-export async function retryInvoiceAction(tenantId: string, invoiceId: string, formData?: FormData): Promise<void> {
+export async function retryInvoiceAction(projectId: string, invoiceId: string, formData?: FormData): Promise<void> {
   await requireAdmin();
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, include: PROJECT_INCLUDE });
   let notice = "retried";
   try {
-    const invoice = await retryInvoice(tenant, invoiceId);
+    const invoice = await retryInvoice(project, invoiceId);
     if (invoice.status === "FAILED") notice = "retry_failed";
   } catch (error) {
     notice = error instanceof ApiError ? `retry_error:${error.code}` : "retry_error";
   }
-  redirect(invoicesReturnPath(tenantId, formData, notice));
+  redirect(invoicesReturnPath(projectId, formData, notice));
 }
 
-export async function deleteInvoiceAction(tenantId: string, invoiceId: string, formData?: FormData): Promise<void> {
+export async function deleteInvoiceAction(projectId: string, invoiceId: string, formData?: FormData): Promise<void> {
   await requireAdmin();
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, include: PROJECT_INCLUDE });
   let notice = "deleted";
   try {
-    await deleteInvoice(tenant, invoiceId);
+    await deleteInvoice(project, invoiceId);
   } catch (error) {
     if (!(error instanceof ApiError)) console.error("[fic-invoicing] unexpected error while deleting invoice", invoiceId, error);
     notice = error instanceof ApiError ? `delete_error:${error.code}:${error.message}` : "delete_error";
   }
-  redirect(invoicesReturnPath(tenantId, formData, notice));
+  redirect(invoicesReturnPath(projectId, formData, notice));
 }

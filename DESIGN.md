@@ -150,9 +150,9 @@ components:
 
 **Creative North Star: "Milano Moderna"**
 
-The interface is a Milan metro map of the instance, in the Noorda/Unimark and Olivetti tradition: white ground, a solid signal-red rail, near-black ink, bold tight grotesque type and 2px black rules between sections. Each tenant is a line whose six stations are its setup steps, and the home page is one line from `git clone` to the first live invoice. The metro line is the system's reusable signature; everything else stays quiet so the line and the statuses read first.
+The interface is a Milan metro map of the instance, in the Noorda/Unimark and Olivetti tradition: white ground, a solid signal-red rail, near-black ink, bold tight grotesque type and 2px black rules between sections. Each project is a line whose six stations are its setup steps, and the home page is one line from `git clone` to the first live invoice. The metro line is the system's reusable signature; everything else stays quiet so the line and the statuses read first.
 
-Density is that of an operations panel read by accountants as well as developers: generous row padding (24px tenant rows, 14px table cells), plain-language status words always next to their marks, and no decoration that is not a wayfinding device. The scene is a daylight office, so the system is light only (`color-scheme: light`); there is no dark theme.
+Density is that of an operations panel read by accountants as well as developers: generous row padding (24px project rows, 14px table cells), plain-language status words always next to their marks, and no decoration that is not a wayfinding device. The scene is a daylight office, so the system is light only (`color-scheme: light`); there is no dark theme.
 
 The world rejects the category default it was built against: grey sidebar, white cards, pastel status pills. Depth comes from rules and flat warm-grey fields, never from cards or soft shadows.
 
@@ -172,7 +172,7 @@ A transit palette: one loud signal red, one ink, one warm grey family, and a sin
 - **Red Ink** (`red-ink`): the error and destructive colour, a darker red that always travels with a mark or icon and words. Failed status, problem stations (dashed ring), error notices' top rule and text, danger buttons, invalid inputs, the confirm box's top rule, home station numbers and the home "Admin" link.
 
 ### Secondary
-- **Line Green** (`line-green`): only for live and issued. Issued/connected/live status dots, the live tenant line, the final "Live" station on the home line, the success notice's check icon.
+- **Line Green** (`line-green`): only for live and issued. Issued/connected/live status dots, the live project line, the final "Live" station on the home line, the success notice's check icon.
 
 ### Neutral
 - **Paper** (`paper`): page ground, input backgrounds, hollow ring centres.
@@ -203,11 +203,11 @@ A transit palette: one loud signal red, one ink, one warm grey family, and a sin
 ### Hierarchy
 - **Display** (800, clamp 56 to 168px, 0.86): the home wordmark only, never wrapping; the login brand panel uses the same voice at clamp 40 to 76px.
 - **Headline** (800, clamp 32 to 46px, 1.02): page titles in the admin page head.
-- **Title** (800, 22px, 1.15): section and empty-state headings; tenant names at 21px; subheads at 20px; home section headings at clamp 26 to 36px.
+- **Title** (800, 22px, 1.15): section and empty-state headings; project names at 21px; subheads at 20px; home section headings at clamp 26 to 36px.
 - **Body** (400, 15px, 1.5): running text; descriptive sub-lines cap at 68ch, home prose at 17px.
 - **Label** (700, 14px): form labels; hints are 13px in ink-3.
 - **Table head** (700, 12px, 0.06em, uppercase): column headers only.
-- **Numbers**: tabular figures in tables, counts and totals; tenant invoice counts at 30px/800.
+- **Numbers**: tabular figures in tables, counts and totals; project invoice counts at 30px/800.
 
 ### Named Rules
 **The Heavy Or Plain Rule.** Headings are 800; body is 400; labels and controls are 600 to 700. No light display weights.
@@ -218,13 +218,13 @@ A transit palette: one loud signal red, one ink, one warm grey family, and a sin
 
 The admin shell is a two-column grid: a sticky 232px signal-red rail and a workspace padded `40px gutter 96px`, content capped at 1180px. The gutter is fluid (`clamp(16px, 4vw, 48px)`). Pages open with a page head (headline left, actions right, sub-line below) and continue as stacked sections, each a 2px-ruled grid of a 180 to 260px heading column beside the body; sections collapse to one column below 860px.
 
-Tenant rows are a three-column grid (name and meta, the setup line, the count) separated by 2px rules; below 980px the line drops to its own full-width row. Forms use an auto-fill grid of 260px minimum fields with 22px by 28px gaps.
+Project rows are a three-column grid (name and meta, the setup line, the count) separated by 2px rules; below 980px the line drops to its own full-width row. Forms use an auto-fill grid of 260px minimum fields with 22px by 28px gaps.
 
 The home page runs full bleed with the gutter as side padding: top bar, hero (wordmark and lead left, actions right), the six-station quickstart line, then 3:9 sections ruled at the top, the red limit band and the footer.
 
-Breakpoints observed: 980px (tenant row), 900px (home line turns vertical, hero stacks), 860px (rail becomes a red top band with horizontally scrolling links; sections stack), 760px (login and home sections stack), 640px (setup lines show only the current or problem label; invoice tables stack).
+Breakpoints observed: 980px (project row), 900px (home line turns vertical, hero stacks), 860px (rail becomes a red top band with horizontally scrolling links; sections stack), 760px (login and home sections stack), 640px (setup lines show only the current or problem label; invoice tables stack).
 
-**The Stacked Row Rule.** Below 640px, invoice tables stop being tables: each row becomes a two-column grid placed by `data-col` (number left, status top right, amount right, tenant/customer/created below in ink-2, details and actions full width), separated by 2px rules.
+**The Stacked Row Rule.** Below 640px, invoice tables stop being tables: each row becomes a two-column grid placed by `data-col` (number left, status top right, amount right, project/customer/created below in ink-2, details and actions full width), separated by 2px rules.
 
 ## Elevation & Depth
 
@@ -272,7 +272,7 @@ Black, square and confident.
 - **Filters:** a field-grey bar holding paper-backed fields.
 
 ### Setup Line (signature)
-The six-station metro line drawn from tenant fields: Created, Connected, Company, Configured, Dry run, Live. The reached station and the line's progress are derived only from stored data (token present and not needing reconnect, company chosen, required configuration complete, dry run off). Reached stations get a red ring, the current one a filled red dot with a paper and red double ring, unreached ones a field-2 ring; a reconnect problem shows a dashed red-ink ring at Connected. When the tenant is live the whole line turns green. A "next step" link under the tenant name points to the section that finishes the line.
+The six-station metro line drawn from project fields: Created, Company, Connected, Configured, Dry run, Live. The reached station and the line's progress are derived only from stored data (company chosen, its account's token present and not needing reconnect, the effective configuration — company defaults plus project overrides — complete, dry run off). Reached stations get a red ring, the current one a filled red dot with a paper and red double ring, unreached ones a field-2 ring; a reconnect problem shows a dashed red-ink ring at Connected. When the project is live the whole line turns green. A "next step" link under the project name points to the section that finishes the line.
 
 ### Quickstart Line (home signature)
 The same grammar at poster scale: a 10px red bar drawing in from the left over 1400ms (disabled under reduced motion), six 40px stations numbered 01 to 06 in red ink, each with a title, a sentence and a black command block with a copy button; the final Live station is green. Below 900px the line runs vertically.
@@ -286,7 +286,7 @@ Ink backgrounds with paper text in JetBrains Mono; request and response sit side
 - **Do** divide sections with a 2px ink rule and list items with a 1px hair.
 - **Do** pair every status colour with a mark shape and a plain word.
 - **Do** keep notices, confirmations and the key reveal on `field` and distinguish them by their top rule.
-- **Do** derive any setup line from stored tenant fields, six stations, from Created to Live.
+- **Do** derive any setup line from stored project fields, six stations, from Created to Live.
 - **Do** set `color-scheme: light` and design for daylight only.
 - **Do** keep corners square; reserve round forms for stations and status dots.
 
@@ -296,3 +296,7 @@ Ink backgrounds with paper text in JetBrains Mono; request and response sit side
 - **Don't** use tinted or pastel washes for notices or statuses.
 - **Don't** use cards, rounded corners or drop shadows for separation.
 - **Don't** introduce a dark theme.
+
+### Inherited setting
+
+A project setting that follows its company shows the company value in a field-grey box with a 2px ink-3 left rule and the words "Company default" under it, instead of a control. A "Custom" checkbox at the right of the label swaps the box for the normal control, prefilled; unticking it returns the setting to the company. The company page lists the projects that use it and what each customizes, so a change to a default says which projects it reaches before it is saved.

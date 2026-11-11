@@ -27,7 +27,7 @@ enum CustomerCategory {
 /// On e-invoices FIC never adds `stamp_duty` to the amount due: it only declares the virtual stamp.
 enum StampDutyMode {
   /// Charged to the customer with a separate €2 "Rimborso imposta di bollo" line: the customer pays amount + €2.
-  /// Needs Tenant.stampDutyVatTypeId.
+  /// Needs a stamp duty VAT type.
   CHARGED_TO_CUSTOMER
   /// Borne by the seller: the line is amountCents, the customer pays amount, the €2 is only declared.
   INCLUDED
@@ -43,29 +43,40 @@ enum InvoiceStatus {
   DELETED
 }
 
-/// An app that calls the API. Each tenant connects its own Fatture in Cloud company.
-model Tenant {
-  id           String  @id @default(cuid())
-  name         String
-  slug         String  @unique
-  /// sha256 hex of the plaintext API key. The plaintext is shown once.
-  apiKeyHash   String  @unique @db.Char(64)
-  /// First characters of the key, to help admins recognise it. Not secret.
-  apiKeyPrefix String  @default("")
-  active       Boolean @default(true)
-
-  // --- Fatture in Cloud connection (tokens are AES-256-GCM encrypted) ---
-  ficCompanyId      Int?
-  ficCompanyName    String?
-  accessTokenEnc    String?   @db.Text
-  refreshTokenEnc   String?   @db.Text
-  tokenExpiresAt    DateTime?
-  connectedAt       DateTime?
+/// One Fatture in Cloud OAuth authorization. Several can be connected; each can reach several companies.
+/// Tokens are AES-256-GCM encrypted. FIC rotates refresh tokens, so they live here once and every
+/// project using one of this account's companies shares them.
+model FicAccount {
+  id              String    @id @default(cuid())
+  /// Shown in the admin: the FIC user's name or email, editable.
+  label           String
+  /// FIC user id, from /user/info. Reconnecting the same user updates this row instead of adding one.
+  ficUserId       Int?      @unique
+  ficUserEmail    String?
+  accessTokenEnc  String?   @db.Text
+  refreshTokenEnc String?   @db.Text
+  tokenExpiresAt  DateTime?
+  connectedAt     DateTime?
   /// Set when a token refresh is rejected by FIC: an admin must reconnect.
-  ficNeedsReconnect Boolean   @default(false)
-  ficLastError      String?   @db.Text
+  needsReconnect  Boolean   @default(false)
+  lastError       String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  companies       Company[]
 
-  // --- Invoice configuration ---
+  @@map("fic_accounts")
+}
+
+/// A Fatture in Cloud company reached through an account, with the invoice settings its projects inherit.
+model Company {
+  id           String     @id @default(cuid())
+  accountId    String
+  account      FicAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  ficCompanyId Int
+  name         String
+
+  /// A fact of the company: projects cannot override it.
+  fiscalRegime        FiscalRegime  @default(FORFETTARIO)
   /// VAT type used for invoice lines (FORFETTARIO: all categories; ORDINARIO: Italian customers).
   vatTypeId           Int?
   /// ORDINARIO only: VAT type for operations outside the scope of Italian VAT (art. 7-ter, EU / extra-EU private customers).
@@ -76,7 +87,6 @@ model Tenant {
   numeration          String?
   /// Item code printed on the invoice line. Null leaves it empty.
   itemCode            String?
-  fiscalRegime        FiscalRegime  @default(FORFETTARIO)
   /// Per-category overrides of the fiscal statement text: { "IT_PRIVATE": "...", ... }. Null uses presets.
   fiscalStatements    Json?
   /// SDI ModalitaPagamento code. MP08 = payment card.
@@ -87,20 +97,63 @@ model Tenant {
   stampDutyVatTypeId  Int?
   /// After a real (non dry-run) invoice is created, ask FIC to send it to SDI.
   sendToSdi           Boolean       @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  projects  Project[]
+  invoices  Invoice[]
+
+  @@unique([accountId, ficCompanyId])
+  @@map("companies")
+}
+
+/// An app that calls the API with its own key. It issues invoices from a company and inherits the
+/// company's settings: every nullable setting below is an override, null means "use the company value".
+model Project {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  /// sha256 hex of the plaintext API key. The plaintext is shown once.
+  apiKeyHash   String   @unique @db.Char(64)
+  /// First characters of the key, to help admins recognise it. Not secret.
+  apiKeyPrefix String   @default("")
+  active       Boolean  @default(true)
   /// When true every invoice is a dry run: validated with FIC's totals endpoint, nothing is created in FIC.
-  dryRun              Boolean       @default(true)
+  dryRun       Boolean  @default(true)
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // --- Overrides of the company settings (null = inherit) ---
+  vatTypeId           Int?
+  nonTaxableVatTypeId Int?
+  paymentAccountId    Int?
+  paymentMethodId     Int?
+  /// "" overrides with "no suffix" (the company default numeration).
+  numeration          String?
+  /// "" overrides with "no item code".
+  itemCode            String?
+  /// Per-category texts; a category missing here uses the company text, then the regime preset.
+  fiscalStatements    Json?
+  eiPaymentMethod     String?
+  stampDutyMode       StampDutyMode?
+  stampDutyVatTypeId  Int?
+  sendToSdi           Boolean?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   invoices  Invoice[]
 
-  @@map("tenants")
+  @@index([companyId])
+  @@map("projects")
 }
 
 model Invoice {
   id               String           @id @default(cuid())
-  tenantId         String
-  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projectId        String
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// The company that issued it: deleting it or resending it to SDI talks to this company.
+  companyId        String?
+  company          Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
   idempotencyKey   String           @db.VarChar(191)
   externalRef      String?          @db.VarChar(191)
   status           InvoiceStatus    @default(PENDING)
@@ -125,7 +178,8 @@ model Invoice {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
-  @@unique([tenantId, idempotencyKey])
-  @@index([tenantId, status, createdAt])
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, status, createdAt])
+  @@index([companyId])
   @@map("invoices")
 }

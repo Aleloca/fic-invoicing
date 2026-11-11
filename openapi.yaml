@@ -3,8 +3,8 @@ info:
   title: fic-invoicing public API
   version: 1.0.0
   description: |
-    Issue Italian electronic invoices through Fatture in Cloud on behalf of a tenant.
-    Authenticate with the tenant API key: `Authorization: Bearer fici_...`.
+    Issue Italian electronic invoices through Fatture in Cloud on behalf of a project (an app registered in the admin panel).
+    Authenticate with the project API key: `Authorization: Bearer fici_...`.
 
     All errors use the shape `{ "error": { "code": "...", "message": "..." } }`.
   license:
@@ -36,7 +36,7 @@ paths:
     post:
       summary: Create and issue an invoice (idempotent)
       description: |
-        Same tenant + same `idempotencyKey` returns the existing invoice with status 200 and does not
+        Same project + same `idempotencyKey` returns the existing invoice with status 200 and does not
         call Fatture in Cloud again, whatever its status (a FAILED invoice is returned as is: use `retry`).
 
         A PENDING row is written before calling Fatture in Cloud. If Fatture in Cloud fails, the invoice
@@ -101,7 +101,7 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "409":
-          description: Tenant not connected / needs reconnection / not configured (`fic_not_connected`, `fic_reconnect_required`, `tenant_not_configured`). No invoice is created.
+          description: Project without a company / account needs reconnection / not configured (`fic_not_connected`, `fic_reconnect_required`, `tenant_not_configured`, a historical name kept for compatibility). No invoice is created.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -132,7 +132,7 @@ paths:
               schema: { $ref: "#/components/schemas/Invoice" }
         "401": { $ref: "#/components/responses/Error" }
         "404":
-          description: Not found (or belongs to another tenant)
+          description: Not found (or belongs to another project)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -163,7 +163,7 @@ paths:
     post:
       summary: Retry a FAILED invoice
       description: |
-        Re-issues a FAILED invoice with the tenant's current configuration. Also retries the SDI
+        Re-issues a FAILED invoice with the project's current company and settings. Also retries the SDI
         transmission of an ISSUED invoice whose automatic send to SDI failed.
         Fails with 409 for other statuses (including DELETED) or if the stored payload was purged.
       responses:
@@ -186,7 +186,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Tenant API key (`fici_...`)
+      description: Project API key (`fici_...`)
 
   parameters:
     InvoiceId:
@@ -251,10 +251,10 @@ components:
           type: integer
           minimum: 1
           description: |
-            EUR cents for the service. VAT-inclusive for ORDINARIO tenants with Italian customers.
-            Stamp duty (FORFETTARIO, amount > 7747) depends on the tenant's stamp duty mode:
+            EUR cents for the service. VAT-inclusive for ORDINARIO companies with Italian customers.
+            Stamp duty (FORFETTARIO, amount > 7747) depends on the project's stamp duty mode:
             `CHARGED_TO_CUSTOMER` adds a separate €2 "Rimborso imposta di bollo" line
-            (total paid = amountCents + stampDutyCents; needs the tenant's stamp duty VAT type, otherwise 409
+            (total paid = amountCents + stampDutyCents; needs a stamp duty VAT type, otherwise 409
             tenant_not_configured), `INCLUDED` is borne by the seller (invoice line = total paid = amountCents,
             the stamp is only declared), `DISABLED` never applies it.
         description: { type: string, maxLength: 1000 }
@@ -265,7 +265,7 @@ components:
           type: boolean
           description: |
             true forces a dry run: the invoice is validated with Fatture in Cloud's totals endpoint and
-            nothing is created in Fatture in Cloud. false cannot disable a tenant-level dry run.
+            nothing is created in Fatture in Cloud. false cannot disable a project-level dry run.
 
     Invoice:
       type: object
@@ -281,7 +281,7 @@ components:
         number: { type: [string, "null"], example: 12/A, description: "null for dry runs" }
         ficDocumentId: { type: [integer, "null"], description: "null for dry runs" }
         amountCents: { type: integer, description: The amount sent by the caller, unchanged in every stamp duty mode. }
-        stampDutyCents: { type: integer, description: "Stamp duty declared on the invoice (0 or 200). Charged to the customer as an extra line or borne by the seller, depending on the tenant's mode." }
+        stampDutyCents: { type: integer, description: "Stamp duty declared on the invoice (0 or 200). Charged to the customer as an extra line or borne by the seller, depending on the project's mode." }
         dryRun: { type: boolean }
         errorMessage: { type: [string, "null"] }
         attempts: { type: integer }

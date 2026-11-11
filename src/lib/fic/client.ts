@@ -154,6 +154,20 @@ export function refreshTokens(refreshToken: string): Promise<FicTokenResponse> {
   });
 }
 
+export interface FicUserInfo {
+  id: number;
+  name: string;
+  email: string | null;
+}
+
+/** The FIC user who granted the authorization. */
+export async function getUserInfo(token: string): Promise<FicUserInfo> {
+  const result = await ficRequest<{ data?: { id?: number; name?: string; email?: string } }>("/user/info", { token });
+  const data = result.data ?? {};
+  if (typeof data.id !== "number") throw new FicHttpError(502, "Fatture in Cloud returned no user id", JSON.stringify(result));
+  return { id: data.id, name: data.name?.trim() || data.email || `User #${data.id}`, email: data.email ?? null };
+}
+
 export async function listUserCompanies(token: string): Promise<FicCompany[]> {
   const result = await ficRequest<{ data?: { companies?: Array<{ id: number; name: string }> } }>(
     "/user/companies",

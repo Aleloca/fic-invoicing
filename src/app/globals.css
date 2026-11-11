@@ -524,16 +524,16 @@ code,
   }
 }
 
-/* -------------------------------------------------------- Tenant rows */
+/* -------------------------------------------------------- Project rows */
 
-.tenant-rows {
+.project-rows {
   list-style: none;
   margin: 0;
   padding: 0;
   border-bottom: 2px solid var(--rule);
 }
 
-.tenant-row {
+.project-row {
   display: grid;
   grid-template-columns: minmax(200px, 1.1fr) minmax(320px, 2.4fr) minmax(110px, 0.6fr);
   gap: 16px 32px;
@@ -542,19 +542,19 @@ code,
   border-top: 2px solid var(--rule);
 }
 
-.tenant-name {
+.project-name {
   font-size: 21px;
   font-weight: 800;
   letter-spacing: -0.02em;
   text-decoration: none;
 }
 
-.tenant-name:hover {
+.project-name:hover {
   text-decoration: underline;
   text-decoration-thickness: 2px;
 }
 
-.tenant-meta {
+.project-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 10px;
@@ -563,7 +563,7 @@ code,
   color: var(--ink-3);
 }
 
-.tenant-next {
+.project-next {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -573,21 +573,21 @@ code,
   text-decoration: none;
 }
 
-.tenant-next:hover {
+.project-next:hover {
   text-decoration: underline;
 }
 
-.tenant-next.problem {
+.project-next.problem {
   color: var(--red-ink);
 }
 
-.tenant-count {
+.project-count {
   justify-self: end;
   text-align: right;
   text-decoration: none;
 }
 
-.tenant-count strong {
+.project-count strong {
   display: block;
   font-size: 30px;
   font-weight: 800;
@@ -596,33 +596,33 @@ code,
   font-variant-numeric: tabular-nums;
 }
 
-.tenant-count span {
+.project-count span {
   font-size: 13px;
   color: var(--ink-3);
 }
 
-.tenant-failed {
+.project-failed {
   display: inline-flex;
   margin-top: 10px;
   margin-right: 16px;
   text-decoration: none;
 }
 
-.tenant-failed:hover {
+.project-failed:hover {
   text-decoration: underline;
 }
 
-.tenant-count:hover strong {
+.project-count:hover strong {
   text-decoration: underline;
   text-decoration-thickness: 2px;
 }
 
 @media (max-width: 980px) {
-  .tenant-row {
+  .project-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .tenant-row .line {
+  .project-row .line {
     grid-column: 1 / -1;
     grid-row: 2;
   }
@@ -1125,6 +1125,216 @@ th.amount {
 .totals strong {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------- Inherited settings */
+
+.override-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.override-head > label,
+.override-head .label {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.override-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.override-switch input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.field.override.is-custom .override-switch {
+  color: var(--ink);
+}
+
+.inherited {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--ink-3);
+  background: var(--field);
+}
+
+.inherited-value {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.inherited-from {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.toggle.inline-toggle {
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.toggle.inline-toggle input {
+  grid-row: auto;
+  margin: 0;
+}
+
+/* --------------------------------------- Fatture in Cloud accounts */
+
+.accounts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-bottom: 2px solid var(--rule);
+}
+
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 0 28px;
+  border-top: 2px solid var(--rule);
+}
+
+.account-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.account-head .btn-row {
+  margin: 0;
+}
+
+.account-name {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.account-head .project-meta {
+  align-items: center;
+}
+
+.company-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--hair);
+}
+
+.company-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(0, 1.6fr) auto;
+  gap: 8px 28px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.company-name {
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.company-name:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+.company-projects {
+  font-size: 14px;
+}
+
+.company-row .project-next {
+  margin-top: 0;
+}
+
+.rename > summary {
+  width: fit-content;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.rename-form {
+  display: flex;
+  gap: 8px;
+  max-width: 440px;
+  margin-top: 10px;
+}
+
+.account-group {
+  margin: 0 0 32px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.account-group legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 0 0 12px;
+}
+
+.account-group legend .account-name {
+  font-size: 18px;
+}
+
+.choice-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.usage {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--hair);
+}
+
+.usage li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.usage a {
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .company-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ------------------------------------------------- Confirm (details) */
@@ -1812,7 +2022,7 @@ details.confirm .confirm-box p {
     text-align: right;
   }
 
-  .stack td[data-col="tenant"],
+  .stack td[data-col="project"],
   .stack td[data-col="customer"],
   .stack td[data-col="created"] {
     grid-column: 1;
@@ -1997,7 +2207,7 @@ details.confirm .confirm-box p {
 }
 
 @media (min-width: 641px) {
-  td[data-col="tenant"] {
+  td[data-col="project"] {
     white-space: nowrap;
   }
 }

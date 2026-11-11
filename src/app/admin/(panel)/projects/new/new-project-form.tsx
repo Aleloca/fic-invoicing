@@ -2,20 +2,20 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
-import { createTenantAction, type FormState } from "../../../actions";
+import { createProjectAction, type FormState } from "../../../actions";
 import { ApiKeyReveal } from "@/components/api-key-reveal";
 import { ArrowRight } from "@/components/icons";
 import { Notice } from "@/components/notices";
 
-export function NewTenantForm() {
-  const [state, action, pending] = useActionState<FormState, FormData>(createTenantAction, {});
+export function NewProjectForm({ companies }: { companies: { id: string; label: string }[] }) {
+  const [state, action, pending] = useActionState<FormState, FormData>(createProjectAction, {});
 
-  if (state.apiKey && state.tenantId) {
+  if (state.apiKey && state.projectId) {
     return (
       <div className="section-body">
         <ApiKeyReveal apiKey={state.apiKey} />
         <div className="btn-row">
-          <Link className="btn" href={`/admin/tenants/${state.tenantId}`}>
+          <Link className="btn" href={`/admin/projects/${state.projectId}`}>
             I copied it, continue setup
             <ArrowRight />
           </Link>
@@ -42,9 +42,31 @@ export function NewTenantForm() {
           Optional. Defaults to the name in kebab-case.
         </span>
       </div>
+      {companies.length > 0 && (
+        <div className="field">
+          <label htmlFor="companyId">Company</label>
+          <select
+            id="companyId"
+            name="companyId"
+            defaultValue={companies.length === 1 ? companies[0].id : ""}
+            aria-describedby="companyId-hint"
+          >
+            <option value="">Choose later</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <span className="hint" id="companyId-hint">
+            A company already set up here: the project uses its settings, no new Fatture in Cloud login. To use another
+            company or account, choose later from the project.
+          </span>
+        </div>
+      )}
       <div className="form-foot">
         <button type="submit" className="btn" disabled={pending}>
-          {pending ? "Creating…" : "Create tenant"}
+          {pending ? "Creating…" : "Create project"}
         </button>
       </div>
     </form>

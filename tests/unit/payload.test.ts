@@ -313,7 +313,7 @@ describe("FORFETTARIO payloads", () => {
     expect(body.data.items_list[0].code).toBe("");
   });
 
-  it("tenant overrides win; empty override prints nothing", () => {
+  it("statement overrides win; empty override prints nothing", () => {
     const { body } = build({ ...forfettario, statementOverrides: { IT_PRIVATE: "Custom text", EU_PRIVATE: "" } }, itPrivate);
     expect(body.data.notes).toBe("Custom text");
     const eu = build({ ...forfettario, statementOverrides: { EU_PRIVATE: "" } }, euPrivate);

@@ -19,7 +19,7 @@ export interface InvoiceRow {
   sdiSentAt: Date | null;
   sdiError: string | null;
   deletedAt: Date | null;
-  tenant?: { id: string; name: string };
+  project?: { id: string; name: string };
 }
 
 export const INVOICE_ROW_SELECT = {
@@ -56,11 +56,11 @@ function Details({ inv }: { inv: InvoiceRow }) {
 
 export function InvoiceTable({
   invoices,
-  showTenant = false,
+  showProject = false,
   actions,
 }: {
   invoices: InvoiceRow[];
-  showTenant?: boolean;
+  showProject?: boolean;
   actions?: (inv: InvoiceRow) => React.ReactNode;
 }) {
   return (
@@ -69,7 +69,7 @@ export function InvoiceTable({
         <thead>
           <tr>
             <th scope="col">Number</th>
-            {showTenant && <th scope="col">Tenant</th>}
+            {showProject && <th scope="col">Project</th>}
             <th scope="col">Status</th>
             <th scope="col">Customer</th>
             <th scope="col" className="amount">
@@ -93,9 +93,9 @@ export function InvoiceTable({
                   {inv.externalRef ?? inv.id}
                 </code>
               </td>
-              {showTenant && inv.tenant && (
-                <td data-col="tenant">
-                  <Link href={`/admin/tenants/${inv.tenant.id}/invoices`}>{inv.tenant.name}</Link>
+              {showProject && inv.project && (
+                <td data-col="project">
+                  <Link href={`/admin/projects/${inv.project.id}/invoices`}>{inv.project.name}</Link>
                 </td>
               )}
               <td data-col="status">

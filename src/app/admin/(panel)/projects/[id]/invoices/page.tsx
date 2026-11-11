@@ -23,13 +23,13 @@ export default async function InvoicesPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  const tenant = await prisma.tenant.findUnique({ where: { id }, select: { id: true, name: true } });
-  if (!tenant) notFound();
+  const project = await prisma.project.findUnique({ where: { id }, select: { id: true, name: true } });
+  if (!project) notFound();
 
   const status = STATUSES.find((s) => s === query.status);
   const page = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
   // "All" leaves deleted invoices out: they only show under their own tab.
-  const where = { tenantId: tenant.id, status: status ?? { not: "DELETED" as const } };
+  const where = { projectId: project.id, status: status ?? { not: "DELETED" as const } };
   const [invoices, total, counts] = await Promise.all([
     prisma.invoice.findMany({
       where,
@@ -39,12 +39,12 @@ export default async function InvoicesPage({
       select: INVOICE_ROW_SELECT,
     }),
     prisma.invoice.count({ where }),
-    prisma.invoice.groupBy({ by: ["status"], where: { tenantId: tenant.id }, _count: { _all: true } }),
+    prisma.invoice.groupBy({ by: ["status"], where: { projectId: project.id }, _count: { _all: true } }),
   ]);
   const countBy = new Map(counts.map((c) => [c.status, c._count._all]));
   const all = counts.filter((c) => c.status !== "DELETED").reduce((sum, c) => sum + c._count._all, 0);
   const { notice, error } = invoiceNotice(query.notice);
-  const base = `/admin/tenants/${tenant.id}/invoices`;
+  const base = `/admin/projects/${project.id}/invoices`;
   const href = (s?: InvoiceStatus, p?: number) => {
     const qs = new URLSearchParams();
     if (s) qs.set("status", s);
@@ -55,18 +55,18 @@ export default async function InvoicesPage({
 
   return (
     <>
-      <Link href={`/admin/tenants/${tenant.id}`} className="crumb">
+      <Link href={`/admin/projects/${project.id}`} className="crumb">
         <ArrowLeft />
-        {tenant.name}
+        {project.name}
       </Link>
       <div className="page-head">
         <h1>Invoices</h1>
         <div className="actions">
-          <Link className="btn secondary" href={`/admin/invoices?tenant=${tenant.id}`}>
+          <Link className="btn secondary" href={`/admin/invoices?project=${project.id}`}>
             Filter by period
           </Link>
         </div>
-        <p className="sub">Every request {tenant.name} sent, newest first. Failed invoices can be retried, and anything not sent to SDI can be deleted.</p>
+        <p className="sub">Every request {project.name} sent, newest first. Failed invoices can be retried, and anything not sent to SDI can be deleted.</p>
       </div>
       <Notices notice={notice} error={error} />
 
@@ -94,7 +94,7 @@ export default async function InvoicesPage({
         <InvoiceTable
           invoices={invoices}
           actions={(inv) => (
-            <InvoiceActions inv={inv} tenantId={tenant.id} returnTo={href(status, page)} />
+            <InvoiceActions inv={inv} projectId={project.id} returnTo={href(status, page)} />
           )}
         />
       )}

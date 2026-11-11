@@ -3,7 +3,7 @@ import { CUSTOMER_CATEGORIES, type CustomerCategory, type FiscalRegime } from ".
 /**
  * Preset fiscal statements (diciture) printed on the invoice line and in the notes.
  * These are common formulations, NOT tax advice: verify them with your accountant
- * and override them per tenant when needed.
+ * and override them per company or project when needed.
  */
 export const STATEMENT_PRESETS = {
   FORFETTARIO:
@@ -30,7 +30,7 @@ export function presetStatement(regime: FiscalRegime, category: CustomerCategory
 }
 
 /**
- * Resolves the statement for an invoice. A tenant override for the category wins
+ * Resolves the statement for an invoice. An override for the category wins
  * over the preset; an empty override string means "print no statement".
  */
 export function resolveStatement(
@@ -45,7 +45,7 @@ export function resolveStatement(
   return presetStatement(regime, category);
 }
 
-/** Parses the tenant `fiscalStatements` JSON column, ignoring unknown keys and non-string values. */
+/** Parses a `fiscalStatements` JSON column (company or project), ignoring unknown keys and non-string values. */
 export function parseStatementOverrides(value: unknown): StatementOverrides | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result: StatementOverrides = {};

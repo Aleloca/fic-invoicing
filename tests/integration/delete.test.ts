@@ -7,7 +7,7 @@ import { apiRateLimiter } from "@/lib/auth";
 import { ApiError } from "@/lib/errors";
 import { deleteInvoice } from "@/lib/invoices/service";
 import { prisma } from "@/lib/prisma";
-import { createTenant, hasTestDb, resetDb } from "../helpers/db";
+import { createProject, hasTestDb, resetDb } from "../helpers/db";
 import { installFicMock } from "../helpers/fic-mock";
 import { apiRequest, params } from "../helpers/http";
 
@@ -56,15 +56,15 @@ describe.skipIf(!hasTestDb)("invoice deletion (integration)", () => {
 
   it("deletes the FIC document and keeps the row as DELETED, with number and document id", async () => {
     const fic = installFicMock();
-    const { tenant, apiKey } = await createTenant();
+    const { project, apiKey } = await createProject();
     const created = await (await post(apiKey, body())).json();
     expect(created).toMatchObject({ status: "ISSUED", ficDocumentId: 5001, number: "1/T", deletedAt: null });
 
-    const deleted = await deleteInvoice(tenant, created.id);
+    const deleted = await deleteInvoice(project, created.id);
     expect(deleted).toMatchObject({ status: "DELETED", ficDocumentId: 5001, ficNumber: "1/T" });
     expect(deleted.deletedAt).toBeInstanceOf(Date);
 
-    const [call] = fic.callsTo(new RegExp(`^/c/${tenant.ficCompanyId}/issued_documents/5001$`), "DELETE");
+    const [call] = fic.callsTo(new RegExp(`^/c/${project.company!.ficCompanyId}/issued_documents/5001$`), "DELETE");
     expect(call.authorization).toBe("Bearer access-0");
     expect(fic.state.documents.has(5001)).toBe(false);
 
@@ -79,15 +79,15 @@ describe.skipIf(!hasTestDb)("invoice deletion (integration)", () => {
     expect((await retried.json()).error.code).toBe("conflict");
 
     // Deleting again is a no-op.
-    expect((await deleteInvoice(tenant, created.id)).status).toBe("DELETED");
+    expect((await deleteInvoice(project, created.id)).status).toBe("DELETED");
     expect(fic.callsTo(/issued_documents\/\d+$/, "DELETE")).toHaveLength(1);
   });
 
   it("a later POST with the same idempotency key returns the invoice with status DELETED", async () => {
     const fic = installFicMock();
-    const { tenant, apiKey } = await createTenant();
+    const { project, apiKey } = await createProject();
     const created = await (await post(apiKey, body())).json();
-    await deleteInvoice(tenant, created.id);
+    await deleteInvoice(project, created.id);
 
     const again = await post(apiKey, body());
     expect(again.status).toBe(200);
@@ -97,40 +97,40 @@ describe.skipIf(!hasTestDb)("invoice deletion (integration)", () => {
 
   it("a 404 from FIC counts as already deleted", async () => {
     const fic = installFicMock();
-    const { tenant, apiKey } = await createTenant();
+    const { project, apiKey } = await createProject();
     const created = await (await post(apiKey, body())).json();
     fic.state.documents.clear();
 
-    const deleted = await deleteInvoice(tenant, created.id);
+    const deleted = await deleteInvoice(project, created.id);
     expect(deleted.status).toBe("DELETED");
     expect(fic.callsTo(/issued_documents\/5001$/, "DELETE")).toHaveLength(1);
   });
 
   it("refuses invoices already sent to SDI", async () => {
     const fic = installFicMock();
-    const { tenant, apiKey } = await createTenant({ sendToSdi: true });
+    const { project, apiKey } = await createProject({ sendToSdi: true });
     const created = await (await post(apiKey, body())).json();
     expect(created.sdi.sentAt).not.toBeNull();
 
-    await expectConflict(deleteInvoice(tenant, created.id), /sent to SDI/);
+    await expectConflict(deleteInvoice(project, created.id), /sent to SDI/);
     expect(fic.callsTo(/issued_documents\/\d+$/, "DELETE")).toHaveLength(0);
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: created.id } })).status).toBe("ISSUED");
   });
 
   it("deletes dry runs and failed invoices locally, without calling FIC", async () => {
     const fic = installFicMock();
-    const dry = await createTenant({ dryRun: true });
+    const dry = await createProject({ dryRun: true });
     const dryInvoice = await (await post(dry.apiKey, body())).json();
     expect(dryInvoice).toMatchObject({ status: "ISSUED", ficDocumentId: null });
-    const dryDeleted = await deleteInvoice(dry.tenant, dryInvoice.id);
+    const dryDeleted = await deleteInvoice(dry.project, dryInvoice.id);
     expect(dryDeleted.status).toBe("DELETED");
     expect(dryDeleted.deletedAt).not.toBeNull();
 
     fic.state.failCreateWith = 422;
-    const live = await createTenant();
+    const live = await createProject();
     const failed = await (await post(live.apiKey, body())).json();
     expect(failed.status).toBe("FAILED");
-    expect((await deleteInvoice(live.tenant, failed.id)).status).toBe("DELETED");
+    expect((await deleteInvoice(live.project, failed.id)).status).toBe("DELETED");
 
     expect(fic.callsTo(/issued_documents\/\d+$/, "DELETE")).toHaveLength(0);
     const retried = await retry(apiRequest("/x", { method: "POST", apiKey: live.apiKey }), params({ id: failed.id }));
@@ -139,19 +139,19 @@ describe.skipIf(!hasTestDb)("invoice deletion (integration)", () => {
 
   it("refuses invoices still being processed", async () => {
     installFicMock();
-    const { tenant } = await createTenant();
+    const { project } = await createProject();
     const pending = await prisma.invoice.create({
-      data: { tenantId: tenant.id, idempotencyKey: "p-1", status: "PENDING", customerCategory: "IT_PRIVATE", amountCents: 100, description: "x", dryRun: false },
+      data: { projectId: project.id, idempotencyKey: "p-1", status: "PENDING", customerCategory: "IT_PRIVATE", amountCents: 100, description: "x", dryRun: false },
     });
-    await expectConflict(deleteInvoice(tenant, pending.id), /being processed/);
+    await expectConflict(deleteInvoice(project, pending.id), /being processed/);
   });
 
-  it("does not delete another tenant's invoice", async () => {
+  it("does not delete another project's invoice", async () => {
     installFicMock();
-    const a = await createTenant();
-    const b = await createTenant();
+    const a = await createProject();
+    const b = await createProject();
     const created = await (await post(a.apiKey, body())).json();
-    const error = await deleteInvoice(b.tenant, created.id).catch((e: unknown) => e);
+    const error = await deleteInvoice(b.project, created.id).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(404);
   });
