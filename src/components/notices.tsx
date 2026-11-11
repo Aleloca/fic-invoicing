@@ -8,15 +8,16 @@ const NOTICES: Record<string, string> = {
   disconnected: "Fatture in Cloud account disconnected. Its projects cannot issue invoices until it is reconnected.",
   account_removed: "Fatture in Cloud account removed.",
   company_removed: "Company removed.",
-  appstore_connected: "App Store Connect set up. The key works; new reports will show up here.",
-  appstore_saved: "App Store settings saved.",
-  appstore_found: "New App Store report found: check the amount and issue the invoice.",
-  appstore_nothing_new: "No new App Store report yet.",
-  appstore_issued: "Invoice to Apple issued.",
-  appstore_failed: "Fatture in Cloud refused the invoice to Apple: see the error below, fix it and retry from the invoices.",
-  appstore_dismissed: "Report marked as invoiced elsewhere.",
-  appstore_restored: "Report ready to invoice again.",
-  appstore_removed: "App Store settings removed. Invoices already issued are kept.",
+  apple_connected: "Apple account connected. The key works; new reports will show up here.",
+  apple_saved: "Apple account saved.",
+  apple_found: "New report found: check the amounts and issue the invoice.",
+  apple_nothing_new: "No new report yet.",
+  apple_products_saved: "Projects of the products saved.",
+  apple_issued: "Invoice to Apple issued.",
+  apple_failed: "Fatture in Cloud refused the invoice to Apple: see the error below, then retry or delete it.",
+  apple_dismissed: "Report marked as invoiced elsewhere.",
+  apple_restored: "Report ready to invoice again.",
+  apple_removed: "Apple account removed.",
   retried: "Invoice retried.",
   deleted: "Invoice deleted. The row is kept with status Deleted, under the Deleted tab.",
   retry_failed: "The retry reached Fatture in Cloud, which returned an error: see the invoice row.",
@@ -55,7 +56,7 @@ export function Notice({
 export function Notices({ notice, error }: { notice?: string; error?: string }) {
   return (
     <>
-      {notice && <Notice tone={notice === "retry_failed" || notice === "appstore_failed" ? "warn" : "ok"}>{NOTICES[notice] ?? notice}</Notice>}
+      {notice && <Notice tone={notice === "retry_failed" || notice === "apple_failed" ? "warn" : "ok"}>{NOTICES[notice] ?? notice}</Notice>}
       {error && <Notice tone="error">{ERRORS[error] ?? error}</Notice>}
     </>
   );

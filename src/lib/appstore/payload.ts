@@ -1,9 +1,9 @@
 /**
- * The Fatture in Cloud document for an invoice to Apple: one line with the proceeds of an App Store
- * fiscal period, to a business in another EU country (reverse charge, recipient code XXXXXXX).
+ * The Fatture in Cloud document for an invoice to Apple: the proceeds of an App Store fiscal period,
+ * one line per project, to a business in another EU country (reverse charge, recipient code XXXXXXX).
  * Pure function, like buildIssuedDocumentPayload.
  */
-import type { AppStoreAccount } from "@prisma/client";
+import type { AppleAccount } from "@prisma/client";
 import { getCountryNameForFIC } from "../fiscal/countries";
 import {
   centsToEuros,
@@ -50,18 +50,28 @@ export function parseCustomer(value: unknown): AppStoreCustomer {
   };
 }
 
+export interface AppStoreInvoiceLine {
+  projectId: string;
+  /** The app (project) name printed in the description. */
+  appName: string;
+  amountCents: number;
+}
+
 export interface AppStoreInvoiceInput {
   period: string;
-  amountCents: number;
+  /** One per project, in the order printed. */
+  lines: AppStoreInvoiceLine[];
   /** YYYY-MM-DD */
   date: string;
   transactionId?: string | null;
 }
 
 export type AppStoreSettings = Pick<
-  AppStoreAccount,
-  "appName" | "customer" | "itemName" | "vatTypeId" | "paymentAccountId" | "paymentMethodId" | "eiPaymentMethod" | "statement"
+  AppleAccount,
+  "customer" | "itemName" | "vatTypeId" | "paymentAccountId" | "paymentMethodId" | "eiPaymentMethod" | "statement"
 >;
+
+export const totalCents = (lines: Pick<AppStoreInvoiceLine, "amountCents">[]) => lines.reduce((sum, l) => sum + l.amountCents, 0);
 
 /** "Proventi da distribuzione app ZenTap, report finanziario Apple periodo fiscale settembre 2026, Transaction ID: 411399920" */
 export function appStoreDescription(appName: string, input: Pick<AppStoreInvoiceInput, "period" | "transactionId">): string {
@@ -87,9 +97,10 @@ export function buildAppStorePayload(
   config: Pick<InvoiceConfig, "fiscalRegime" | "stampDutyMode" | "numeration">,
   input: AppStoreInvoiceInput,
 ): BuiltPayload {
-  if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
-    throw new PayloadError("input", "The amount must be a positive number of euro cents");
+  if (input.lines.length === 0 || input.lines.some((l) => !Number.isInteger(l.amountCents) || l.amountCents <= 0)) {
+    throw new PayloadError("input", "Every line needs a positive amount in euro");
   }
+  const amountCents = totalCents(input.lines);
   const vatTypeId = requireId(settings.vatTypeId, "a VAT type");
   const paymentAccountId = requireId(settings.paymentAccountId, "a payment account");
   const paymentMethodId = requireId(settings.paymentMethodId, "a payment method");
@@ -102,10 +113,8 @@ export function buildAppStorePayload(
   const { stampDutyCents, totalPaidCents } = splitStampDuty(
     config.fiscalRegime,
     config.stampDutyMode === "DISABLED" ? "DISABLED" : "INCLUDED",
-    input.amountCents,
+    amountCents,
   );
-  const amount = centsToEuros(input.amountCents);
-  const description = appStoreDescription(settings.appName, input);
   const statement = settings.statement?.trim() || null;
 
   const body: FicIssuedDocumentRequest = {
@@ -132,20 +141,18 @@ export function buildAppStorePayload(
       date: input.date,
       currency: { id: "EUR" },
       use_gross_prices: false,
-      items_list: [
-        {
-          product_id: null,
-          code: "",
-          name: settings.itemName,
-          net_price: amount,
-          gross_price: amount,
-          category: "",
-          qty: 1,
-          vat: { id: vatTypeId },
-          not_taxable: false,
-          description,
-        },
-      ],
+      items_list: input.lines.map((line) => ({
+        product_id: null,
+        code: "",
+        name: settings.itemName,
+        net_price: centsToEuros(line.amountCents),
+        gross_price: centsToEuros(line.amountCents),
+        category: "",
+        qty: 1,
+        vat: { id: vatTypeId },
+        not_taxable: false,
+        description: appStoreDescription(line.appName, input),
+      })),
       payments_list: [
         {
           amount: centsToEuros(totalPaidCents),

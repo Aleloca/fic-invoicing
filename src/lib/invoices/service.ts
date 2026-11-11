@@ -1,7 +1,7 @@
 /**
  * Invoice lifecycle: create (idempotent), issue through FIC, retry.
  */
-import { Prisma, type Invoice } from "@prisma/client";
+import { Prisma, type AppleAccount, type Invoice } from "@prisma/client";
 import { env } from "../env";
 import { ApiError } from "../errors";
 import {
@@ -21,9 +21,9 @@ import {
   type BuiltPayload,
   type CustomerData,
 } from "../fiscal/payload";
-import { buildAppStorePayload, type AppStoreInvoiceInput } from "../appstore/payload";
+import { buildAppStorePayload, totalCents, type AppStoreInvoiceInput } from "../appstore/payload";
 import { prisma } from "../prisma";
-import { resolveConfig, type CompanyWithAccount, type ProjectWithCompany } from "../projects/config";
+import { NO_OVERRIDES, resolveConfig, type CompanyWithAccount, type ProjectWithCompany } from "../projects/config";
 import type { CreateInvoiceInput } from "./schema";
 
 /** What is stored in `Invoice.requestPayload` to allow a retry. Contains personal data. */
@@ -44,18 +44,62 @@ function isAppStorePayload(value: unknown): value is AppStoreRequestPayload {
   return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "appstore";
 }
 
+
 export type CreateOutcome =
   | { kind: "existing"; invoice: Invoice }
   | { kind: "issued"; invoice: Invoice }
   | { kind: "failed"; invoice: Invoice };
 
-/** The company a project issues from, once it is usable. Throws the public API errors otherwise. */
-function assertProjectReady(project: ProjectWithCompany): CompanyWithAccount {
-  const company = project.company;
-  if (!company) {
-    throw new ApiError(409, "fic_not_connected", "This project has no Fatture in Cloud company yet");
+export type AppleAccountWithCompany = AppleAccount & { company: CompanyWithAccount | null };
+
+/** Prisma `include` that loads what issuing an invoice to Apple needs. */
+export const APPLE_ACCOUNT_INCLUDE = { company: { include: { account: true } } } satisfies Prisma.AppleAccountInclude;
+
+/**
+ * Who issues an invoice: a project (its own invoices) or an Apple account (the invoices to Apple,
+ * one per report, covering several projects). Both issue from a Fatture in Cloud company.
+ */
+interface Issuer {
+  scope: { projectId: string } | { appleAccountId: string };
+  company: CompanyWithAccount | null;
+  dryRun: boolean;
+  numeration: string | null;
+  sendToSdi: boolean;
+}
+
+export function projectIssuer(project: ProjectWithCompany): Issuer {
+  const resolved = resolveConfig(project.company, project);
+  return {
+    scope: { projectId: project.id },
+    company: project.company,
+    dryRun: project.dryRun,
+    numeration: resolved.invoice.numeration,
+    sendToSdi: resolved.sendToSdi,
+  };
+}
+
+/** Invoices to Apple follow the defaults of the account's company, and the account's dry run. */
+export function appleIssuer(account: AppleAccountWithCompany): Issuer {
+  const resolved = resolveConfig(account.company, NO_OVERRIDES);
+  return {
+    scope: { appleAccountId: account.id },
+    company: account.company,
+    dryRun: account.dryRun,
+    numeration: resolved.invoice.numeration,
+    sendToSdi: resolved.sendToSdi,
+  };
+}
+
+/** The company an issuer issues from, once it is usable. Throws the public API errors otherwise. */
+function assertIssuerReady(issuer: Pick<Issuer, "company">): CompanyWithAccount {
+  if (!issuer.company) {
+    throw new ApiError(409, "fic_not_connected", "No Fatture in Cloud company is set to issue these invoices");
   }
-  return assertCompanyReady(company);
+  return assertCompanyReady(issuer.company);
+}
+
+function assertProjectReady(project: ProjectWithCompany): CompanyWithAccount {
+  return assertIssuerReady(project);
 }
 
 function assertCompanyReady(company: CompanyWithAccount): CompanyWithAccount {
@@ -63,20 +107,24 @@ function assertCompanyReady(company: CompanyWithAccount): CompanyWithAccount {
     throw new ApiError(409, "fic_reconnect_required", "The Fatture in Cloud authorization must be renewed by an administrator");
   }
   if (!company.account.accessTokenEnc || !company.account.refreshTokenEnc) {
-    throw new ApiError(409, "fic_not_connected", "The Fatture in Cloud account of this project is not connected");
+    throw new ApiError(409, "fic_not_connected", "The Fatture in Cloud account of this company is not connected");
   }
   return company;
 }
 
 /**
- * The company an existing invoice belongs to: the one that issued it, even if the project has
- * moved to another company since. Falls back to the project's company for older rows.
+ * The company an existing invoice belongs to: the one that issued it, even if the issuer has
+ * moved to another company since. Falls back to the issuer's company for older rows.
  */
-export async function companyOfInvoice(project: ProjectWithCompany, invoice: Invoice): Promise<CompanyWithAccount> {
-  if (!invoice.companyId || invoice.companyId === project.companyId) return assertProjectReady(project);
+async function companyOfInvoiceFor(issuer: Pick<Issuer, "company">, invoice: Invoice): Promise<CompanyWithAccount> {
+  if (!invoice.companyId || invoice.companyId === issuer.company?.id) return assertIssuerReady(issuer);
   const company = await prisma.company.findUnique({ where: { id: invoice.companyId }, include: { account: true } });
   if (!company) throw new ApiError(409, "fic_not_connected", "The Fatture in Cloud company that issued this invoice was removed");
   return assertCompanyReady(company);
+}
+
+export function companyOfInvoice(project: ProjectWithCompany, invoice: Invoice): Promise<CompanyWithAccount> {
+  return companyOfInvoiceFor(project, invoice);
 }
 
 function buildOrThrow(
@@ -94,11 +142,8 @@ function buildOrThrow(
   );
 }
 
-/** Builds the payload of an invoice to Apple from the project's App Store settings. */
-async function appStoreBuilder(project: ProjectWithCompany, payload: AppStoreRequestPayload): Promise<() => BuiltPayload> {
-  const account = await prisma.appStoreAccount.findUnique({ where: { projectId: project.id } });
-  if (!account) throw new ApiError(409, "conflict", "This project has no App Store settings any more");
-  return () => payloadOrThrow(() => buildAppStorePayload(account, resolveConfig(project.company, project).invoice, payload));
+function applePayload(account: AppleAccountWithCompany, payload: AppStoreInvoiceInput): BuiltPayload {
+  return payloadOrThrow(() => buildAppStorePayload(account, resolveConfig(account.company, NO_OVERRIDES).invoice, payload));
 }
 
 function payloadOrThrow(build: () => BuiltPayload): BuiltPayload {
@@ -114,6 +159,7 @@ function payloadOrThrow(build: () => BuiltPayload): BuiltPayload {
     throw error;
   }
 }
+
 
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
@@ -203,9 +249,10 @@ export async function createInvoice(project: ProjectWithCompany, input: CreateIn
     throw error;
   }
 
-  const issued = await issue(project, invoice, () => buildOrThrow(project, stored, invoice));
+  const issued = await issue(projectIssuer(project), invoice, () => buildOrThrow(project, stored, invoice));
   return { kind: issued.status === "ISSUED" ? "issued" : "failed", invoice: issued };
 }
+
 
 /**
  * Calls FIC for a PENDING invoice and records the outcome (ISSUED or FAILED).
@@ -214,19 +261,18 @@ export async function createInvoice(project: ProjectWithCompany, input: CreateIn
  * Every attempt first asks FIC to compute the totals (nothing is created, no number
  * is consumed). A dry run stops there: FIC has no real dry run on creation.
  */
-async function issue(project: ProjectWithCompany, invoice: Invoice, build: () => BuiltPayload): Promise<Invoice> {
-  const dryRun = invoice.dryRun || project.dryRun;
-  // A retry issues from the project's current company: record it.
+async function issue(issuer: Issuer, invoice: Invoice, build: () => BuiltPayload): Promise<Invoice> {
+  const dryRun = invoice.dryRun || issuer.dryRun;
+  // A retry issues from the issuer's current company: record it.
   await prisma.invoice.update({
     where: { id: invoice.id },
-    data: { attempts: { increment: 1 }, dryRun, companyId: project.companyId },
+    data: { attempts: { increment: 1 }, dryRun, companyId: issuer.company?.id ?? null },
   });
   // The customer data is no longer needed once the outcome is final.
   const purge = env.purgePayloadOnSuccess() ? { requestPayload: Prisma.DbNull } : {};
 
   try {
-    const company = assertProjectReady(project);
-    const config = resolveConfig(company, project);
+    const company = assertIssuerReady(issuer);
     const built = build();
     const token = await getFicAccess(company.accountId);
 
@@ -251,12 +297,11 @@ async function issue(project: ProjectWithCompany, invoice: Invoice, build: () =>
 
     const document = await createIssuedDocument(token, company.ficCompanyId, built.body);
     const documentId = document.id && document.id > 0 ? document.id : null;
-    const number =
-      document.number !== null ? `${document.number}${document.numeration ?? config.invoice.numeration ?? ""}` : null;
+    const number = document.number !== null ? `${document.number}${document.numeration ?? issuer.numeration ?? ""}` : null;
 
     let sdiSentAt: Date | null = null;
     let sdiError: string | null = null;
-    if (config.sendToSdi && documentId) {
+    if (issuer.sendToSdi && documentId) {
       try {
         await sendEInvoice(token, company.ficCompanyId, documentId);
         sdiSentAt = new Date();
@@ -289,25 +334,33 @@ async function issue(project: ProjectWithCompany, invoice: Invoice, build: () =>
   }
 }
 
-export async function findProjectInvoice(projectId: string, id: string): Promise<Invoice> {
-  const invoice = await prisma.invoice.findFirst({ where: { id, projectId } });
+async function findInvoice(scope: Issuer["scope"], id: string): Promise<Invoice> {
+  const invoice = await prisma.invoice.findFirst({ where: { id, ...scope } });
   if (!invoice) throw new ApiError(404, "not_found", "Invoice not found");
   return invoice;
 }
 
+export function findProjectInvoice(projectId: string, id: string): Promise<Invoice> {
+  return findInvoice({ projectId }, id);
+}
+
 /**
  * Retries an invoice:
- * - FAILED: issues it again with the project's current company and settings;
+ * - FAILED: issues it again with the issuer's current company and settings;
  * - ISSUED whose SDI send failed: retries only the SDI send.
  */
-export async function retryInvoice(project: ProjectWithCompany, id: string): Promise<Invoice> {
-  const invoice = await findProjectInvoice(project.id, id);
+async function retryWith(
+  issuer: Issuer,
+  id: string,
+  builderFor: (payload: Prisma.JsonValue, invoice: Invoice) => () => BuiltPayload,
+): Promise<Invoice> {
+  const invoice = await findInvoice(issuer.scope, id);
 
   if (invoice.status === "DELETED") {
     throw new ApiError(409, "conflict", "This invoice was deleted from Fatture in Cloud: it cannot be retried");
   }
   if (invoice.status === "ISSUED" && invoice.sdiError && !invoice.sdiSentAt && invoice.ficDocumentId) {
-    return retrySdiSend(project, invoice);
+    return retrySdiSend(issuer, invoice);
   }
   if (invoice.status !== "FAILED") {
     throw new ApiError(409, "conflict", `Only FAILED invoices can be retried (status is ${invoice.status})`);
@@ -315,28 +368,41 @@ export async function retryInvoice(project: ProjectWithCompany, id: string): Pro
   if (!invoice.requestPayload) {
     throw new ApiError(409, "conflict", "The request payload of this invoice was purged: it cannot be retried");
   }
-  assertProjectReady(project);
+  assertIssuerReady(issuer);
+  const build = builderFor(invoice.requestPayload, invoice);
 
   // Claim the row atomically so two concurrent retries cannot both call FIC.
   const claimed = await prisma.invoice.updateMany({
-    where: { id: invoice.id, projectId: project.id, status: "FAILED" },
+    where: { id: invoice.id, ...issuer.scope, status: "FAILED" },
     data: { status: "PENDING", errorMessage: null },
   });
   if (claimed.count !== 1) throw new ApiError(409, "conflict", "This invoice is already being retried");
 
   const fresh = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
-  const payload = invoice.requestPayload;
-  const build = isAppStorePayload(payload)
-    ? await appStoreBuilder(project, payload)
-    : () => buildOrThrow(project, payload as unknown as StoredRequestPayload, fresh);
-  const issued = await issue(project, fresh, build);
+  const issued = await issue(issuer, fresh, build);
   await markAppStoreReport(issued);
   return issued;
 }
 
-async function retrySdiSend(project: ProjectWithCompany, invoice: Invoice): Promise<Invoice> {
+export function retryInvoice(project: ProjectWithCompany, id: string): Promise<Invoice> {
+  return retryWith(projectIssuer(project), id, (payload, invoice) => {
+    if (isAppStorePayload(payload)) {
+      throw new ApiError(409, "conflict", "This invoice to Apple was made before Apple accounts: delete it and issue it again from the Apple page");
+    }
+    return () => buildOrThrow(project, payload as unknown as StoredRequestPayload, invoice);
+  });
+}
+
+export function retryAppleInvoice(account: AppleAccountWithCompany, id: string): Promise<Invoice> {
+  return retryWith(appleIssuer(account), id, (payload) => {
+    if (!isAppStorePayload(payload)) throw new ApiError(409, "conflict", "Not an invoice to Apple");
+    return () => applePayload(account, payload);
+  });
+}
+
+async function retrySdiSend(issuer: Issuer, invoice: Invoice): Promise<Invoice> {
   try {
-    const company = await companyOfInvoice(project, invoice);
+    const company = await companyOfInvoiceFor(issuer, invoice);
     const token = await getFicAccess(company.accountId);
     await sendEInvoice(token, company.ficCompanyId, invoice.ficDocumentId!);
     return prisma.invoice.update({
@@ -363,8 +429,8 @@ export function isDeletable(invoice: Pick<Invoice, "status" | "sdiSentAt">): boo
  * kept for audit. Deleting an invoice that is not the latest of its numeration leaves a gap
  * in the numbering.
  */
-export async function deleteInvoice(project: ProjectWithCompany, id: string): Promise<Invoice> {
-  const invoice = await findProjectInvoice(project.id, id);
+async function deleteWith(issuer: Issuer, id: string): Promise<Invoice> {
+  const invoice = await findInvoice(issuer.scope, id);
   if (invoice.status === "DELETED") return invoice;
   if (invoice.sdiSentAt !== null) {
     throw new ApiError(409, "conflict", "This invoice was sent to SDI: it cannot be deleted, issue a credit note instead");
@@ -374,7 +440,7 @@ export async function deleteInvoice(project: ProjectWithCompany, id: string): Pr
   }
 
   if (invoice.ficDocumentId !== null) {
-    const company = await companyOfInvoice(project, invoice);
+    const company = await companyOfInvoiceFor(issuer, invoice);
     const token = await getFicAccess(company.accountId);
     try {
       await deleteIssuedDocument(token, company.ficCompanyId, invoice.ficDocumentId);
@@ -393,6 +459,14 @@ export async function deleteInvoice(project: ProjectWithCompany, id: string): Pr
   return deleted;
 }
 
+export function deleteInvoice(project: ProjectWithCompany, id: string): Promise<Invoice> {
+  return deleteWith(projectIssuer(project), id);
+}
+
+export function deleteAppleInvoice(account: AppleAccountWithCompany, id: string): Promise<Invoice> {
+  return deleteWith(appleIssuer(account), id);
+}
+
 /** An App Store report is INVOICED once its invoice is issued. */
 async function markAppStoreReport(invoice: Invoice): Promise<void> {
   if (invoice.status !== "ISSUED") return;
@@ -400,40 +474,40 @@ async function markAppStoreReport(invoice: Invoice): Promise<void> {
 }
 
 /**
- * Issues the invoice to Apple for a READY App Store report, with the euro amount the admin confirmed.
- * The invoice is an ordinary row of the project (listed, retried and deleted like the others). A
- * report keeps the invoice even when it fails, so it can be retried; deleting it frees the report.
+ * Issues the invoice to Apple for a READY report: one line per project, with the euro amounts the
+ * admin confirmed. The invoice belongs to the Apple account and is issued from its company. A report
+ * keeps the invoice even when it fails, so it can be retried; deleting it frees the report.
  */
 export async function issueAppStoreInvoice(
-  project: ProjectWithCompany,
+  account: AppleAccountWithCompany,
   reportId: string,
   input: Omit<AppStoreInvoiceInput, "period">,
 ): Promise<Invoice> {
-  const report = await prisma.appStoreReport.findUnique({ where: { id: reportId }, include: { account: true } });
-  if (!report || report.account.projectId !== project.id) throw new ApiError(404, "not_found", "Report not found");
+  const report = await prisma.appStoreReport.findUnique({ where: { id: reportId } });
+  if (!report || report.accountId !== account.id) throw new ApiError(404, "not_found", "Report not found");
   if (report.status !== "READY" || report.invoiceId !== null) {
     throw new ApiError(409, "conflict", "This report already has an invoice");
   }
-  assertProjectReady(project);
+  const issuer = appleIssuer(account);
+  assertIssuerReady(issuer);
 
   const payload: AppStoreRequestPayload = { v: 1, kind: "appstore", reportId, period: report.period, ...input };
-  const build = () => payloadOrThrow(() => buildAppStorePayload(report.account, resolveConfig(project.company, project).invoice, payload));
-  const built = build();
+  const built = applePayload(account, payload);
 
   // Claim the report first, so two clicks cannot issue two invoices.
   const invoice = await prisma.$transaction(async (tx) => {
     const created = await tx.invoice.create({
       data: {
-        projectId: project.id,
-        companyId: project.companyId,
-        idempotencyKey: `appstore:${report.period}:${Date.now()}`,
+        appleAccountId: account.id,
+        companyId: account.companyId,
+        idempotencyKey: `appstore:${account.id}:${report.period}:${Date.now()}`,
         externalRef: `appstore:${report.period}`,
         status: "PENDING",
         customerCategory: "EU_BUSINESS",
-        amountCents: input.amountCents,
+        amountCents: totalCents(input.lines),
         stampDutyCents: built.stampDutyCents,
-        description: built.body.data.items_list[0].description,
-        dryRun: project.dryRun,
+        description: `App Store ${report.period}: ${input.lines.map((l) => l.appName).join(", ")}`,
+        dryRun: account.dryRun,
         requestPayload: payload as unknown as Prisma.InputJsonValue,
       },
     });
@@ -445,7 +519,7 @@ export async function issueAppStoreInvoice(
     return created;
   });
 
-  const issued = await issue(project, invoice, build);
+  const issued = await issue(issuer, invoice, () => applePayload(account, payload));
   await markAppStoreReport(issued);
   return issued;
 }

@@ -4,8 +4,8 @@ import { parseFinancialReport } from "@/lib/appstore/report";
 
 const HEADER =
   "Start Date\tEnd Date\tUPC\tISRC/ISBN\tVendor Identifier\tQuantity\tPartner Share\tExtended Partner Share\tPartner Share Currency\tSales or Return\tApple Identifier\tArtist/Show/Developer/Author\tTitle\tLabel/Studio/Network/Developer/Publisher\tGrid\tProduct Type Identifier\tISAN/Other Identifier\tCountry Of Sale\tPre-order Flag\tPromo Code\tCustomer Price\tCustomer Currency";
-const row = (qty: number, share: string, ext: string, cur: string, country: string) =>
-  `08/30/2026\t09/26/2026\t\t\tapp_pro_unlock\t${qty}\t${share}\t${ext}\t${cur}\tS\t123\t\tPro Unlock\t\t\tIA1\t\t${country}\t\t\t0.99\t${cur}`;
+const row = (qty: number, share: string, ext: string, cur: string, country: string, product = ["123", "app_pro_unlock", "Pro Unlock"]) =>
+  `08/30/2026\t09/26/2026\t\t\t${product[1]}\t${qty}\t${share}\t${ext}\t${cur}\tS\t${product[0]}\t\t${product[2]}\t\t\tIA1\t\t${country}\t\t\t0.99\t${cur}`;
 
 // Same layout as the real report Apple returned for September 2026.
 const SEPTEMBER = [
@@ -19,16 +19,26 @@ const SEPTEMBER = [
 ].join("\n");
 
 describe("App Store financial report", () => {
-  it("sums the partner share per currency and ignores the summary after Total_Rows", () => {
+  const pro = { appleId: "123", sku: "app_pro_unlock", title: "Pro Unlock" };
+
+  it("sums the partner share per product and currency and ignores the summary after Total_Rows", () => {
     expect(parseFinancialReport(SEPTEMBER)).toEqual([
-      { currency: "GBP", amount: "0.57", units: 1, countries: ["GB"] },
-      { currency: "TRY", amount: "27.70", units: 1, countries: ["TR"] },
+      { ...pro, currency: "GBP", amount: "0.57", units: 1, countries: ["GB"] },
+      { ...pro, currency: "TRY", amount: "27.70", units: 1, countries: ["TR"] },
+    ]);
+  });
+
+  it("keeps products apart", () => {
+    const tsv = [HEADER, row(1, "0.70", "0.70", "USD", "US"), row(2, "1.40", "2.80", "USD", "US", ["456", "other_app", "Other App"]), "Total_Rows\t2"].join("\n");
+    expect(parseFinancialReport(tsv).map((l) => [l.appleId, l.sku, l.title, l.amount])).toEqual([
+      ["123", "app_pro_unlock", "Pro Unlock", "0.70"],
+      ["456", "other_app", "Other App", "2.80"],
     ]);
   });
 
   it("adds rows of one currency exactly, across countries, including returns", () => {
     const tsv = [HEADER, row(6, "0.70", "4.20", "USD", "US"), row(2, "0.70", "1.40", "USD", "CA"), row(-1, "0.70", "-0.70", "USD", "US"), "Total_Rows\t3"].join("\n");
-    expect(parseFinancialReport(tsv)).toEqual([{ currency: "USD", amount: "4.90", units: 7, countries: ["CA", "US"] }]);
+    expect(parseFinancialReport(tsv)).toEqual([{ ...pro, currency: "USD", amount: "4.90", units: 7, countries: ["CA", "US"] }]);
   });
 
   it("refuses an unknown layout", () => {
@@ -55,5 +65,25 @@ describe("ECB rates", () => {
   it("has no estimate when a currency has no ECB rate", () => {
     expect(estimateCents([{ currency: "SAR", amount: "10.00" }], {})).toBeNull();
     expect(estimateCents([{ currency: "EUR", amount: "2.50" }], {})).toBe(250);
+  });
+});
+
+describe("project suggestion for Apple products", () => {
+  const projects = [
+    { id: "p1", name: "ZenTap", slug: "zentap" },
+    { id: "p2", name: "MoonLog", slug: "moon-log" },
+    { id: "p3", name: "App", slug: "app" },
+  ];
+
+  it("proposes the project named by the SKU or title", async () => {
+    const { suggestProject } = await import("@/lib/appstore/groups");
+    expect(suggestProject({ sku: "zentap_pro_unlock", title: "ZenTap Pro Unlock" }, projects)?.id).toBe("p1");
+    expect(suggestProject({ sku: "ml_premium", title: "MoonLog Premium" }, projects)?.id).toBe("p2");
+  });
+
+  it("proposes nothing when no project, or several, match", async () => {
+    const { suggestProject } = await import("@/lib/appstore/groups");
+    expect(suggestProject({ sku: "other", title: "Something" }, projects)).toBeNull();
+    expect(suggestProject({ sku: "zentap_moonl0g", title: "Bundle" }, [...projects, { id: "p4", name: "Zentap2", slug: "zentap" }])).toBeNull();
   });
 });

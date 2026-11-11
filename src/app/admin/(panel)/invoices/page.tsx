@@ -87,7 +87,7 @@ export default async function AllInvoicesPage({
       orderBy: { createdAt: "desc" },
       take: PAGE_SIZE,
       skip: (page - 1) * PAGE_SIZE,
-      select: { ...INVOICE_ROW_SELECT, project: { select: { id: true, name: true } } },
+      select: { ...INVOICE_ROW_SELECT, project: { select: { id: true, name: true } }, appleAccount: { select: { id: true, label: true } } },
     }),
     prisma.invoice.count({ where }),
     prisma.invoice.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
@@ -204,8 +204,12 @@ export default async function AllInvoicesPage({
           invoices={invoices}
           showProject
           actions={(inv) =>
-            inv.project ? (
-              <InvoiceActions inv={inv} projectId={inv.project.id} returnTo={href({ page: page > 1 ? String(page) : undefined })} />
+            inv.project || inv.appleAccount ? (
+              <InvoiceActions
+                inv={inv}
+                owner={inv.project ? { projectId: inv.project.id } : { appleAccountId: inv.appleAccount!.id }}
+                returnTo={href({ page: page > 1 ? String(page) : undefined })}
+              />
             ) : null
           }
         />

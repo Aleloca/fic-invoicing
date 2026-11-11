@@ -123,20 +123,24 @@ One OAuth app serves the whole instance. Each Fatture in Cloud account authorize
 
 ### App Store payouts
 
-For an app paid through Apple, a project can issue the monthly invoice to Apple (Apple Distribution
-International by default) from the App Store financial reports: *project → App Store*.
+For apps paid through Apple, the service prepares the monthly invoice to Apple (Apple Distribution International by
+default) from the App Store financial reports: *Apple* in the admin.
 
-- Create a **team API key with the Finance role** in App Store Connect (*Users and Access → Integrations → App Store
-  Connect API*) and enter the issuer id, key id, vendor number and the `.p8` file (stored encrypted). The key only
-  reads financial reports.
+- An **Apple account** is one App Store Connect account; its apps can belong to different projects. Create a **team
+  API key with the Finance role** (*Users and Access → Integrations → App Store Connect API*) and enter the issuer
+  id, key id, vendor number and the `.p8` file (stored encrypted), and the Fatture in Cloud company Apple pays.
+- Products appear with the first report that sells them (for an in-app purchase, the purchase). Assign each to its
+  project once; a project named by the SKU or title is proposed.
 - Every 6 hours (`APPSTORE_POLL`, on by default) the service asks Apple for the reports of the ended fiscal months.
   Apple's fiscal months follow its 5-4-4 week calendar; a month without sales has no report.
-- A new report shows up on the projects list and on the App Store page, with the proceeds per currency and the euro
-  amount estimated at the **ECB reference rate** of the day it was found. Apple's report has no euro amount: compare
-  it with the Payments page of App Store Connect, correct it if needed, add the transaction id, and issue.
-- The invoice is a normal invoice of the project (retry, delete, SDI sending, dry run): one line, customer with
-  VAT number and recipient code `XXXXXXX`, the VAT type, payment account and method chosen on the App Store page
-  (non-taxable art. 7-ter and bank transfer, `MP05`). Forfettario stamp duty above €77.47 is declared and borne by
+- A new report shows up on the projects list and on the account page, with the proceeds per product and currency and
+  the euro amounts estimated at the **ECB reference rate** of the day it was found. Apple's report has no euro amount:
+  compare the total with the Payments page of App Store Connect, correct the amounts if needed, add the transaction
+  id, and issue.
+- **One invoice per report, one line per project** ("Proventi da distribuzione app <project>, …"), issued from the
+  account's company with its numeration and SDI sending, and the account's dry run. Customer with VAT number and
+  recipient code `XXXXXXX`, the VAT type, payment account and method chosen on the account (non-taxable art. 7-ter and
+  bank transfer, `MP05`). It is listed as "Apple · <account>" and can be retried or deleted like any invoice. Forfettario stamp duty above €77.47 is declared and borne by
   you. Not tax advice: confirm the customer, VAT type and statement with your accountant.
 
 Projects used to be called *tenants*. The public API is unchanged, including the `tenant_not_configured` error

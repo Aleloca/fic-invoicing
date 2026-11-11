@@ -19,7 +19,8 @@ export interface InvoiceRow {
   sdiSentAt: Date | null;
   sdiError: string | null;
   deletedAt: Date | null;
-  project?: { id: string; name: string };
+  project?: { id: string; name: string } | null;
+  appleAccount?: { id: string; label: string } | null;
 }
 
 export const INVOICE_ROW_SELECT = {
@@ -93,9 +94,13 @@ export function InvoiceTable({
                   {inv.externalRef ?? inv.id}
                 </code>
               </td>
-              {showProject && inv.project && (
+              {showProject && (
                 <td data-col="project">
-                  <Link href={`/admin/projects/${inv.project.id}/invoices`}>{inv.project.name}</Link>
+                  {inv.project ? (
+                    <Link href={`/admin/projects/${inv.project.id}/invoices`}>{inv.project.name}</Link>
+                  ) : inv.appleAccount ? (
+                    <Link href={`/admin/apple/${inv.appleAccount.id}`}>Apple · {inv.appleAccount.label}</Link>
+                  ) : null}
                 </td>
               )}
               <td data-col="status">

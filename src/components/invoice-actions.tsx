@@ -1,4 +1,4 @@
-import { deleteInvoiceAction, retryInvoiceAction } from "@/app/admin/actions";
+import { deleteAppleInvoiceAction, deleteInvoiceAction, retryAppleInvoiceAction, retryInvoiceAction } from "@/app/admin/actions";
 import { isDeletable } from "@/lib/invoices/service";
 import type { InvoiceRow } from "./invoice-table";
 
@@ -26,13 +26,18 @@ function deleteWarning(inv: InvoiceRow): string {
 
 export function InvoiceActions({
   inv,
-  projectId,
+  owner,
   returnTo,
 }: {
   inv: InvoiceRow;
-  projectId: string;
+  /** The project or the Apple account the invoice belongs to. */
+  owner: { projectId: string } | { appleAccountId: string };
   returnTo: string;
 }) {
+  const retry =
+    "projectId" in owner ? retryInvoiceAction.bind(null, owner.projectId, inv.id) : retryAppleInvoiceAction.bind(null, owner.appleAccountId, inv.id);
+  const remove =
+    "projectId" in owner ? deleteInvoiceAction.bind(null, owner.projectId, inv.id) : deleteAppleInvoiceAction.bind(null, owner.appleAccountId, inv.id);
   const sdiRetry = inv.status === "ISSUED" && inv.sdiError !== null && inv.sdiSentAt === null;
   const canRetry = inv.status === "FAILED" || sdiRetry;
   const canDelete = isDeletable(inv);
@@ -40,7 +45,7 @@ export function InvoiceActions({
   return (
     <div className="row-actions">
       {canRetry && (
-        <form action={retryInvoiceAction.bind(null, projectId, inv.id)}>
+        <form action={retry}>
           <input type="hidden" name="returnTo" value={returnTo} />
           <button type="submit" className="btn small">
             {sdiRetry ? "Resend to SDI" : "Retry"}
@@ -52,7 +57,7 @@ export function InvoiceActions({
           <summary className="btn small danger">Delete</summary>
           <div className="confirm-box">
             <p>{deleteWarning(inv)}</p>
-            <form action={deleteInvoiceAction.bind(null, projectId, inv.id)}>
+            <form action={remove}>
               <input type="hidden" name="returnTo" value={returnTo} />
               <button type="submit" className="btn small danger solid">
                 Confirm delete

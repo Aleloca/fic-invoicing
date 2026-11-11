@@ -94,7 +94,7 @@ export default async function InvoicesPage({
         <InvoiceTable
           invoices={invoices}
           actions={(inv) => (
-            <InvoiceActions inv={inv} projectId={project.id} returnTo={href(status, page)} />
+            <InvoiceActions inv={inv} owner={{ projectId: project.id }} returnTo={href(status, page)} />
           )}
         />
       )}

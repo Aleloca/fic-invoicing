@@ -1,6 +1,11 @@
 /** Parsing of the App Store Connect FINANCIAL report (TSV). */
 
 export interface ReportLine {
+  /** "Apple Identifier" of the product (for an in-app purchase, the purchase). */
+  appleId: string;
+  /** "Vendor Identifier": the SKU the developer gave the product. */
+  sku: string;
+  title: string;
   /** ISO currency of the partner share, e.g. "USD". */
   currency: string;
   /** Partner share in that currency, as printed by Apple (e.g. "27.70"). */
@@ -10,7 +15,30 @@ export interface ReportLine {
   countries: string[];
 }
 
-/** Sums the report rows per currency. Throws when the columns Apple uses are missing. */
+/** Exact decimal sum of Apple's amounts ("0.70", "-0.70", "27.70"). */
+class Decimal {
+  constructor(
+    private units: bigint = BigInt(0),
+    private scale = 0,
+  ) {}
+
+  add(raw: string): void {
+    const decimals = raw.split(".")[1]?.length ?? 0;
+    const scale = Math.max(this.scale, decimals);
+    const value = BigInt(raw.replace(".", ""));
+    this.units = this.units * BigInt(10) ** BigInt(scale - this.scale) + value * BigInt(10) ** BigInt(scale - decimals);
+    this.scale = scale;
+  }
+
+  toString(): string {
+    const negative = this.units < BigInt(0);
+    const digits = (negative ? -this.units : this.units).toString().padStart(this.scale + 1, "0");
+    const text = this.scale > 0 ? `${digits.slice(0, -this.scale)}.${digits.slice(-this.scale)}` : digits;
+    return `${negative ? "-" : ""}${text}`;
+  }
+}
+
+/** Sums the report rows per product and currency. Throws when the columns Apple uses are missing. */
 export function parseFinancialReport(tsv: string): ReportLine[] {
   const lines = tsv.split(/\r?\n/);
   const header = (lines[0] ?? "").split("\t").map((h) => h.trim().toLowerCase());
@@ -19,31 +47,29 @@ export function parseFinancialReport(tsv: string): ReportLine[] {
   const currency = col("Partner Share Currency");
   const quantity = col("Quantity");
   const country = col("Country Of Sale");
-  if (share < 0 || currency < 0 || quantity < 0) throw new Error("Unexpected App Store financial report format");
+  const appleId = col("Apple Identifier");
+  const sku = col("Vendor Identifier");
+  const title = col("Title");
+  if (share < 0 || currency < 0 || quantity < 0 || appleId < 0) throw new Error("Unexpected App Store financial report format");
 
-  const byCurrency = new Map<string, { cents: bigint; decimals: number; units: number; countries: Set<string> }>();
+  const groups = new Map<string, { line: Omit<ReportLine, "amount" | "countries">; sum: Decimal; countries: Set<string> }>();
   for (const line of lines.slice(1)) {
     // The rows end at "Total_Rows"; a per-country summary follows.
     if (line.startsWith("Total_Rows") || line.trim() === "") break;
-    const cells = line.split("\t");
-    const code = cells[currency]?.trim();
-    const raw = cells[share]?.trim() ?? "";
-    if (!code || !/^-?\d+(\.\d+)?$/.test(raw)) continue;
-    const decimals = raw.split(".")[1]?.length ?? 0;
-    const entry = byCurrency.get(code) ?? { cents: BigInt(0), decimals, units: 0, countries: new Set<string>() };
-    const scale = Math.max(entry.decimals, decimals);
-    const toScale = (value: bigint, from: number) => value * BigInt(10) ** BigInt(scale - from);
-    entry.cents = toScale(entry.cents, entry.decimals) + toScale(BigInt(raw.replace(".", "")), decimals);
-    entry.decimals = scale;
-    entry.units += Number(cells[quantity]) || 0;
-    if (country >= 0 && cells[country]?.trim()) entry.countries.add(cells[country].trim());
-    byCurrency.set(code, entry);
+    const cells = line.split("\t").map((c) => c.trim());
+    const code = cells[currency];
+    const raw = cells[share] ?? "";
+    if (!code || !/^-?\d+(\.\d+)?$/.test(raw) || !cells[appleId]) continue;
+    const key = `${cells[appleId]}|${code}`;
+    const group = groups.get(key) ?? {
+      line: { appleId: cells[appleId], sku: sku >= 0 ? cells[sku] : "", title: title >= 0 ? cells[title] : "", currency: code, units: 0 },
+      sum: new Decimal(),
+      countries: new Set<string>(),
+    };
+    group.sum.add(raw);
+    group.line.units += Number(cells[quantity]) || 0;
+    if (country >= 0 && cells[country]) group.countries.add(cells[country]);
+    groups.set(key, group);
   }
-
-  return [...byCurrency.entries()].map(([code, e]) => {
-    const negative = e.cents < BigInt(0);
-    const digits = (negative ? -e.cents : e.cents).toString().padStart(e.decimals + 1, "0");
-    const amount = e.decimals > 0 ? `${digits.slice(0, -e.decimals)}.${digits.slice(-e.decimals)}` : digits;
-    return { currency: code, amount: `${negative ? "-" : ""}${amount}`, units: e.units, countries: [...e.countries].sort() };
-  });
+  return [...groups.values()].map((g) => ({ ...g.line, amount: g.sum.toString(), countries: [...g.countries].sort() }));
 }

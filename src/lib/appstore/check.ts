@@ -1,7 +1,7 @@
 /**
  * Looks for new App Store financial reports and stores them with a euro estimate.
  */
-import type { AppStoreAccount, Prisma } from "@prisma/client";
+import type { AppleAccount, Prisma } from "@prisma/client";
 import { decrypt } from "../crypto";
 import { todayInItaly } from "../fiscal/payload";
 import { prisma } from "../prisma";
@@ -14,7 +14,7 @@ import { parseFinancialReport } from "./report";
 const NO_SALES_AFTER_DAYS = 60;
 const DAY = 24 * 60 * 60 * 1000;
 
-export function credentialsOf(account: AppStoreAccount): AppStoreCredentials {
+export function credentialsOf(account: AppleAccount): AppStoreCredentials {
   return {
     issuerId: account.issuerId,
     keyId: account.keyId,
@@ -24,7 +24,7 @@ export function credentialsOf(account: AppStoreAccount): AppStoreCredentials {
 }
 
 /** Stores the report of a period with the ECB rates of today. Returns false when Apple has none. */
-async function importPeriod(account: AppStoreAccount, credentials: AppStoreCredentials, code: string, today: string): Promise<boolean> {
+async function importPeriod(account: AppleAccount, credentials: AppStoreCredentials, code: string, today: string): Promise<boolean> {
   const tsv = await downloadFinancialReport(credentials, code);
   if (tsv === null) return false;
   const lines = parseFinancialReport(tsv);
@@ -42,6 +42,15 @@ async function importPeriod(account: AppStoreAccount, credentials: AppStoreCrede
   } catch (error) {
     // No estimate: the admin types the amount. The report itself is what matters.
     console.warn("[fic-invoicing] ECB rates unavailable", error instanceof Error ? error.message : error);
+  }
+
+  // Products seen for the first time wait for the admin to assign them to a project.
+  for (const line of lines) {
+    await prisma.appleProduct.upsert({
+      where: { accountId_appleId: { accountId: account.id, appleId: line.appleId } },
+      create: { accountId: account.id, appleId: line.appleId, sku: line.sku, title: line.title },
+      update: { sku: line.sku, title: line.title },
+    });
   }
 
   const period = periodFromCode(code);
@@ -71,7 +80,7 @@ export interface CheckResult {
  * `nextPeriod` moves past the periods that are settled (a report exists, or none came long after).
  */
 export async function checkAccount(accountId: string, now: Date = new Date()): Promise<CheckResult> {
-  const account = await prisma.appStoreAccount.findUniqueOrThrow({ where: { id: accountId } });
+  const account = await prisma.appleAccount.findUniqueOrThrow({ where: { id: accountId } });
   const known = new Set(
     (await prisma.appStoreReport.findMany({ where: { accountId }, select: { period: true } })).map((r) => r.period),
   );
@@ -93,12 +102,12 @@ export async function checkAccount(accountId: string, now: Date = new Date()): P
       if (advancing && settled) next = nextCode(code);
       else advancing = false;
     }
-    await prisma.appStoreAccount.update({
+    await prisma.appleAccount.update({
       where: { id: accountId },
       data: { nextPeriod: next, lastCheckedAt: now, lastError: null },
     });
   } catch (error) {
-    await prisma.appStoreAccount.update({
+    await prisma.appleAccount.update({
       where: { id: accountId },
       data: { nextPeriod: next, lastCheckedAt: now, lastError: error instanceof Error ? error.message : String(error) },
     });
@@ -113,7 +122,7 @@ let running: Promise<void> | null = null;
 export function checkAllAccounts(): Promise<void> {
   running ??= (async () => {
     try {
-      const accounts = await prisma.appStoreAccount.findMany({ select: { id: true } });
+      const accounts = await prisma.appleAccount.findMany({ select: { id: true } });
       for (const { id } of accounts) {
         await checkAccount(id).catch((error) =>
           console.error("[fic-invoicing] App Store check failed", id, error instanceof Error ? error.message : error),

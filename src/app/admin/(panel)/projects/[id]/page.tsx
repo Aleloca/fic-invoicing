@@ -40,9 +40,10 @@ export default async function ProjectPage({
   const missing = missingConfiguration(resolved.invoice);
   const progress = setupProgress(project);
   const lookups = await loadLookups(state === "ready" ? company : null);
-  const appStore = await prisma.appStoreAccount.findUnique({
+  const appleProducts = await prisma.appleProduct.findMany({
     where: { projectId: project.id },
-    select: { reports: { where: { status: "READY" }, select: { id: true } } },
+    orderBy: { title: "asc" },
+    include: { account: { select: { id: true, label: true } } },
   });
 
   // Projects on the same company with the same effective numeration share one number sequence.
@@ -230,24 +231,24 @@ export default async function ProjectPage({
 
       <section className="section" id="app-store">
         <SectionHead title="App Store">
-          For an app paid through Apple: invoices to Apple from its monthly financial reports.
+          Apps sold through Apple: Apple pays the account, which is invoiced once a month with a line for this project.
         </SectionHead>
         <div className="section-body">
-          {appStore ? (
-            <p>
-              {appStore.reports.length > 0
-                ? `${appStore.reports.length} ${appStore.reports.length === 1 ? "report" : "reports"} to invoice.`
-                : "Connected. No report to invoice."}
-            </p>
+          {appleProducts.length > 0 ? (
+            <ul className="usage">
+              {appleProducts.map((p) => (
+                <li key={p.id}>
+                  <strong>{p.title || p.sku}</strong>
+                  <Link href={`/admin/apple/${p.account.id}`}>{p.account.label}</Link>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p className="hint">Not set up.</p>
+            <p className="hint">
+              No Apple product. Connect the App Store Connect account in <Link href="/admin/apple">Apple</Link>: products are
+              assigned to projects there, when they first appear in a report.
+            </p>
           )}
-          <div className="btn-row">
-            <Link className={`btn${appStore?.reports.length ? "" : " secondary"}`} href={`/admin/projects/${project.id}/appstore`}>
-              {appStore ? "Open App Store" : "Set up App Store Connect"}
-              <ArrowRight />
-            </Link>
-          </div>
         </div>
       </section>
 
