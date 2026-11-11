@@ -121,6 +121,24 @@ One OAuth app serves the whole instance. Each Fatture in Cloud account authorize
 - Every invoice records the company that issued it: deleting it, resending it to SDI or downloading its PDF uses
   that company even after the project moved to another one.
 
+### App Store payouts
+
+For an app paid through Apple, a project can issue the monthly invoice to Apple (Apple Distribution
+International by default) from the App Store financial reports: *project → App Store*.
+
+- Create a **team API key with the Finance role** in App Store Connect (*Users and Access → Integrations → App Store
+  Connect API*) and enter the issuer id, key id, vendor number and the `.p8` file (stored encrypted). The key only
+  reads financial reports.
+- Every 6 hours (`APPSTORE_POLL`, on by default) the service asks Apple for the reports of the ended fiscal months.
+  Apple's fiscal months follow its 5-4-4 week calendar; a month without sales has no report.
+- A new report shows up on the projects list and on the App Store page, with the proceeds per currency and the euro
+  amount estimated at the **ECB reference rate** of the day it was found. Apple's report has no euro amount: compare
+  it with the Payments page of App Store Connect, correct it if needed, add the transaction id, and issue.
+- The invoice is a normal invoice of the project (retry, delete, SDI sending, dry run): one line, customer with
+  VAT number and recipient code `XXXXXXX`, the VAT type, payment account and method chosen on the App Store page
+  (non-taxable art. 7-ter and bank transfer, `MP05`). Forfettario stamp duty above €77.47 is declared and borne by
+  you. Not tax advice: confirm the customer, VAT type and statement with your accountant.
+
 Projects used to be called *tenants*. The public API is unchanged, including the `tenant_not_configured` error
 code, and old `/admin/tenants/…` links redirect.
 

@@ -1340,6 +1340,43 @@ th.amount {
   }
 }
 
+/* ------------------------------------------------------ App Store */
+
+.report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 0 28px;
+  border-top: 2px solid var(--rule);
+}
+
+.report-card + .report-card {
+  margin-top: 8px;
+}
+
+.report-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.report-head h3 {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.report-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.usage li form {
+  margin-left: auto;
+}
+
 /* ------------------------------------------------- Confirm (details) */
 
 details.confirm > summary {

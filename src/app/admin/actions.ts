@@ -7,7 +7,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminSession, destroyAdminSession, requireAdmin } from "@/lib/admin-session";
 import { generateApiKey } from "@/lib/api-key";
-import { safeEqual } from "@/lib/crypto";
+import { checkAccount, suggestStartPeriod } from "@/lib/appstore/check";
+import { decrypt, encrypt, safeEqual } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { ApiError } from "@/lib/errors";
 import { buildAuthorizeUrl, listUserCompanies } from "@/lib/fic/client";
@@ -15,7 +16,7 @@ import { getFicAccess } from "@/lib/fic/tokens";
 import { CUSTOMER_CATEGORIES, FISCAL_REGIMES, STAMP_DUTY_MODES } from "@/lib/fiscal/types";
 import { ensureCompany } from "@/lib/projects/accounts";
 import { OVERRIDABLE, PROJECT_INCLUDE, type OverridableKey } from "@/lib/projects/config";
-import { deleteInvoice, retryInvoice } from "@/lib/invoices/service";
+import { deleteInvoice, issueAppStoreInvoice, retryInvoice } from "@/lib/invoices/service";
 import { createOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
 import { RateLimiter } from "@/lib/rate-limit";
@@ -303,4 +304,152 @@ export async function deleteInvoiceAction(projectId: string, invoiceId: string, 
     notice = error instanceof ApiError ? `delete_error:${error.code}:${error.message}` : "delete_error";
   }
   redirect(invoicesReturnPath(projectId, formData, notice));
+}
+
+// ------------------------------------------------------------------ App Store payouts
+
+const appStoreBase = (projectId: string) => `/admin/projects/${projectId}/appstore`;
+
+function backWith(projectId: string, key: "notice" | "error", value: string): never {
+  redirect(`${appStoreBase(projectId)}?${key}=${encodeURIComponent(value)}`);
+}
+
+const appStoreSchema = z.object({
+  issuerId: z.string().trim().min(1, "required").max(100),
+  keyId: z.string().trim().min(1, "required").max(40),
+  vendorNumber: z.string().trim().regex(/^\d+$/, "digits only"),
+  appName: z.string().trim().min(1, "required").max(100),
+  itemName: z.string().trim().min(1, "required").max(200),
+  vatTypeId: optionalId,
+  paymentAccountId: optionalId,
+  paymentMethodId: optionalId,
+  eiPaymentMethod,
+  statement: optionalText(2000),
+  customerName: z.string().trim().min(1, "required").max(200),
+  customerVatNumber: z.string().trim().min(2, "required").max(30),
+  customerAddress: z.string().trim().max(200),
+  customerZipCode: z.string().trim().max(20),
+  customerCity: z.string().trim().max(100),
+  customerProvince: z.string().trim().max(100),
+  customerCountryCode: z.string().trim().regex(/^[A-Za-z]{2}$/, "two-letter country code"),
+  startPeriod: z
+    .string()
+    .trim()
+    .regex(/^(\d{4}-\d{2})?$/, "invalid period"),
+});
+
+/** Creates or updates the App Store settings of a project. New credentials are tested against Apple. */
+export async function saveAppStoreAction(projectId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const field = (name: string) => String(formData.get(name) ?? "");
+  const parsed = appStoreSchema.safeParse(Object.fromEntries(Object.keys(appStoreSchema.shape).map((k) => [k, field(k)])));
+  if (!parsed.success) backWith(projectId, "error", issuesMessage(parsed.error));
+  const d = parsed.data;
+
+  const file = formData.get("privateKey");
+  const uploaded = file instanceof File && file.size > 0 ? (await file.text()).trim() : "";
+  if (uploaded && !uploaded.includes("PRIVATE KEY")) backWith(projectId, "error", "The private key must be the .p8 file from App Store Connect.");
+
+  const existing = await prisma.appStoreAccount.findUnique({ where: { projectId } });
+  if (!existing && !uploaded) backWith(projectId, "error", "Upload the .p8 private key.");
+  const privateKey = uploaded || decrypt(existing!.privateKeyEnc);
+  const credentials = { issuerId: d.issuerId, keyId: d.keyId, privateKey, vendorNumber: d.vendorNumber };
+  const credentialsChanged =
+    !existing ||
+    Boolean(uploaded) ||
+    existing.issuerId !== d.issuerId ||
+    existing.keyId !== d.keyId ||
+    existing.vendorNumber !== d.vendorNumber;
+
+  let nextPeriod = d.startPeriod || existing?.nextPeriod || "";
+  if (credentialsChanged) {
+    try {
+      const suggested = await suggestStartPeriod(credentials);
+      if (!d.startPeriod && !existing) nextPeriod = suggested.start;
+    } catch (error) {
+      backWith(projectId, "error", `App Store Connect refused the key: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+
+  const data = {
+    issuerId: d.issuerId,
+    keyId: d.keyId,
+    vendorNumber: d.vendorNumber,
+    privateKeyEnc: encrypt(privateKey),
+    appName: d.appName,
+    itemName: d.itemName,
+    vatTypeId: d.vatTypeId,
+    paymentAccountId: d.paymentAccountId,
+    paymentMethodId: d.paymentMethodId,
+    eiPaymentMethod: d.eiPaymentMethod,
+    statement: d.statement,
+    customer: {
+      name: d.customerName,
+      vatNumber: d.customerVatNumber,
+      address: d.customerAddress,
+      zipCode: d.customerZipCode,
+      city: d.customerCity,
+      province: d.customerProvince,
+      countryCode: d.customerCountryCode.toUpperCase(),
+    },
+    nextPeriod,
+    lastError: null,
+  };
+  await prisma.appStoreAccount.upsert({ where: { projectId }, create: { projectId, ...data }, update: data });
+  backWith(projectId, "notice", existing ? "appstore_saved" : "appstore_connected");
+}
+
+export async function checkAppStoreAction(projectId: string): Promise<void> {
+  await requireAdmin();
+  const account = await prisma.appStoreAccount.findUnique({ where: { projectId }, select: { id: true } });
+  if (!account) backWith(projectId, "error", "Set up App Store Connect first.");
+  let found: string[] = [];
+  try {
+    found = (await checkAccount(account.id)).found;
+  } catch (error) {
+    backWith(projectId, "error", `Check failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+  backWith(projectId, "notice", found.length > 0 ? "appstore_found" : "appstore_nothing_new");
+}
+
+/** "1,18", "1.18" or "1 234,50" euro → cents. */
+function euroCents(raw: string): number | null {
+  const clean = raw.trim().replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(clean)) return null;
+  return Math.round(Number(clean) * 100);
+}
+
+export async function issueAppStoreInvoiceAction(projectId: string, reportId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const amountCents = euroCents(String(formData.get("amount") ?? ""));
+  const date = String(formData.get("date") ?? "");
+  const transactionId = String(formData.get("transactionId") ?? "").trim().slice(0, 60) || null;
+  if (!amountCents || amountCents <= 0) backWith(projectId, "error", "Type the amount in euro, for example 1,18.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) backWith(projectId, "error", "Pick the invoice date.");
+
+  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, include: PROJECT_INCLUDE });
+  let notice = "appstore_issued";
+  try {
+    const invoice = await issueAppStoreInvoice(project, reportId, { amountCents, date, transactionId });
+    if (invoice.status === "FAILED") notice = "appstore_failed";
+  } catch (error) {
+    backWith(projectId, "error", error instanceof Error ? error.message : "Could not issue the invoice");
+  }
+  backWith(projectId, "notice", notice);
+}
+
+/** Marks a report as invoiced by hand, or (undo) ready again. */
+export async function setAppStoreReportDismissedAction(projectId: string, reportId: string, dismissed: boolean): Promise<void> {
+  await requireAdmin();
+  await prisma.appStoreReport.updateMany({
+    where: { id: reportId, invoiceId: null, account: { projectId } },
+    data: { status: dismissed ? "DISMISSED" : "READY" },
+  });
+  backWith(projectId, "notice", dismissed ? "appstore_dismissed" : "appstore_restored");
+}
+
+export async function removeAppStoreAction(projectId: string): Promise<void> {
+  await requireAdmin();
+  await prisma.appStoreAccount.deleteMany({ where: { projectId } });
+  redirect(`/admin/projects/${projectId}?notice=appstore_removed`);
 }
