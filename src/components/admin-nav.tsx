@@ -11,6 +11,7 @@ const LINKS = [
     label: "Fatture in Cloud",
     match: (p: string) => p.startsWith("/admin/fic") || p.startsWith("/admin/companies"),
   },
+  { href: "/admin/apple", label: "Apple", match: (p: string) => p.startsWith("/admin/apple") },
   { href: "/admin/api", label: "API reference", match: (p: string) => p.startsWith("/admin/api") },
 ];
 

@@ -16,7 +16,16 @@ import { getFicAccess } from "@/lib/fic/tokens";
 import { CUSTOMER_CATEGORIES, FISCAL_REGIMES, STAMP_DUTY_MODES } from "@/lib/fiscal/types";
 import { ensureCompany } from "@/lib/projects/accounts";
 import { OVERRIDABLE, PROJECT_INCLUDE, type OverridableKey } from "@/lib/projects/config";
-import { deleteInvoice, issueAppStoreInvoice, retryInvoice } from "@/lib/invoices/service";
+import {
+  APPLE_ACCOUNT_INCLUDE,
+  deleteAppleInvoice,
+  deleteInvoice,
+  issueAppStoreInvoice,
+  retryAppleInvoice,
+  retryInvoice,
+} from "@/lib/invoices/service";
+import { groupReport } from "@/lib/appstore/groups";
+import type { ReportLine } from "@/lib/appstore/report";
 import { createOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
 import { RateLimiter } from "@/lib/rate-limit";
@@ -270,11 +279,13 @@ export async function updateProjectAction(projectId: string, formData: FormData)
 }
 
 /** Where an invoice action returns: the page it was sent from, when it is an admin invoices list. */
-function invoicesReturnPath(projectId: string, formData: FormData | undefined, notice: string): string {
+function invoicesReturnPath(projectId: string | null, formData: FormData | undefined, notice: string): string {
   const raw = String(formData?.get("returnTo") ?? "");
-  const base = /^\/admin\/(invoices|projects\/[\w-]+\/invoices)(\?[\w=&%.:-]*)?$/.test(raw)
+  const base = /^\/admin\/(invoices|projects\/[\w-]+\/invoices|apple\/[\w-]+)(\?[\w=&%.:-]*)?$/.test(raw)
     ? raw
-    : `/admin/projects/${projectId}/invoices`;
+    : projectId
+      ? `/admin/projects/${projectId}/invoices`
+      : "/admin/invoices";
   const url = new URL(base, "http://local");
   url.searchParams.set("notice", notice);
   return `${url.pathname}${url.search}`;
@@ -306,19 +317,20 @@ export async function deleteInvoiceAction(projectId: string, invoiceId: string, 
   redirect(invoicesReturnPath(projectId, formData, notice));
 }
 
-// ------------------------------------------------------------------ App Store payouts
+// ------------------------------------------------------------------ Apple accounts (App Store payouts)
 
-const appStoreBase = (projectId: string) => `/admin/projects/${projectId}/appstore`;
+const applePath = (accountId: string) => `/admin/apple/${accountId}`;
 
-function backWith(projectId: string, key: "notice" | "error", value: string): never {
-  redirect(`${appStoreBase(projectId)}?${key}=${encodeURIComponent(value)}`);
+function appleBack(accountId: string, key: "notice" | "error", value: string): never {
+  redirect(`${applePath(accountId)}?${key}=${encodeURIComponent(value)}`);
 }
 
-const appStoreSchema = z.object({
+const appleSchema = z.object({
+  label: z.string().trim().min(1, "required").max(100),
   issuerId: z.string().trim().min(1, "required").max(100),
   keyId: z.string().trim().min(1, "required").max(40),
   vendorNumber: z.string().trim().regex(/^\d+$/, "digits only"),
-  appName: z.string().trim().min(1, "required").max(100),
+  companyId: z.string().trim(),
   itemName: z.string().trim().min(1, "required").max(200),
   vatTypeId: optionalId,
   paymentAccountId: optionalId,
@@ -338,22 +350,30 @@ const appStoreSchema = z.object({
     .regex(/^(\d{4}-\d{2})?$/, "invalid period"),
 });
 
-/** Creates or updates the App Store settings of a project. New credentials are tested against Apple. */
-export async function saveAppStoreAction(projectId: string, formData: FormData): Promise<void> {
+/**
+ * Creates (accountId null) or updates an Apple account. New or changed credentials are tested
+ * against Apple; a new account starts after the latest report Apple has, unless a period is chosen.
+ */
+export async function saveAppleAccountAction(accountId: string | null, formData: FormData): Promise<void> {
   await requireAdmin();
+  const errorBack: (message: string) => never = (message) =>
+    accountId ? appleBack(accountId, "error", message) : redirect(`/admin/apple/new?error=${encodeURIComponent(message)}`);
   const field = (name: string) => String(formData.get(name) ?? "");
-  const parsed = appStoreSchema.safeParse(Object.fromEntries(Object.keys(appStoreSchema.shape).map((k) => [k, field(k)])));
-  if (!parsed.success) backWith(projectId, "error", issuesMessage(parsed.error));
+  const parsed = appleSchema.safeParse(Object.fromEntries(Object.keys(appleSchema.shape).map((k) => [k, field(k)])));
+  if (!parsed.success) errorBack(issuesMessage(parsed.error));
   const d = parsed.data;
+  if (d.companyId && !(await prisma.company.findUnique({ where: { id: d.companyId }, select: { id: true } }))) {
+    errorBack("Unknown company.");
+  }
 
   const file = formData.get("privateKey");
   const uploaded = file instanceof File && file.size > 0 ? (await file.text()).trim() : "";
-  if (uploaded && !uploaded.includes("PRIVATE KEY")) backWith(projectId, "error", "The private key must be the .p8 file from App Store Connect.");
+  if (uploaded && !uploaded.includes("PRIVATE KEY")) errorBack("The private key must be the .p8 file from App Store Connect.");
 
-  const existing = await prisma.appStoreAccount.findUnique({ where: { projectId } });
-  if (!existing && !uploaded) backWith(projectId, "error", "Upload the .p8 private key.");
+  const existing = accountId ? await prisma.appleAccount.findUnique({ where: { id: accountId } }) : null;
+  if (accountId && !existing) redirect("/admin/apple");
+  if (!existing && !uploaded) errorBack("Upload the .p8 private key.");
   const privateKey = uploaded || decrypt(existing!.privateKeyEnc);
-  const credentials = { issuerId: d.issuerId, keyId: d.keyId, privateKey, vendorNumber: d.vendorNumber };
   const credentialsChanged =
     !existing ||
     Boolean(uploaded) ||
@@ -364,19 +384,21 @@ export async function saveAppStoreAction(projectId: string, formData: FormData):
   let nextPeriod = d.startPeriod || existing?.nextPeriod || "";
   if (credentialsChanged) {
     try {
-      const suggested = await suggestStartPeriod(credentials);
-      if (!d.startPeriod && !existing) nextPeriod = suggested.start;
+      const suggested = await suggestStartPeriod({ issuerId: d.issuerId, keyId: d.keyId, privateKey, vendorNumber: d.vendorNumber });
+      if (!nextPeriod) nextPeriod = suggested.start;
     } catch (error) {
-      backWith(projectId, "error", `App Store Connect refused the key: ${error instanceof Error ? error.message : "unknown error"}`);
+      errorBack(`App Store Connect refused the key: ${error instanceof Error ? error.message : "unknown error"}`);
     }
   }
 
   const data = {
+    label: d.label,
     issuerId: d.issuerId,
     keyId: d.keyId,
     vendorNumber: d.vendorNumber,
     privateKeyEnc: encrypt(privateKey),
-    appName: d.appName,
+    companyId: d.companyId || null,
+    dryRun: formData.get("dryRun") === "on",
     itemName: d.itemName,
     vatTypeId: d.vatTypeId,
     paymentAccountId: d.paymentAccountId,
@@ -395,21 +417,38 @@ export async function saveAppStoreAction(projectId: string, formData: FormData):
     nextPeriod,
     lastError: null,
   };
-  await prisma.appStoreAccount.upsert({ where: { projectId }, create: { projectId, ...data }, update: data });
-  backWith(projectId, "notice", existing ? "appstore_saved" : "appstore_connected");
+  if (existing) {
+    await prisma.appleAccount.update({ where: { id: existing.id }, data });
+    appleBack(existing.id, "notice", "apple_saved");
+  }
+  const created = await prisma.appleAccount.create({ data });
+  appleBack(created.id, "notice", "apple_connected");
 }
 
-export async function checkAppStoreAction(projectId: string): Promise<void> {
+export async function checkAppleAccountAction(accountId: string): Promise<void> {
   await requireAdmin();
-  const account = await prisma.appStoreAccount.findUnique({ where: { projectId }, select: { id: true } });
-  if (!account) backWith(projectId, "error", "Set up App Store Connect first.");
   let found: string[] = [];
   try {
-    found = (await checkAccount(account.id)).found;
+    found = (await checkAccount(accountId)).found;
   } catch (error) {
-    backWith(projectId, "error", `Check failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    appleBack(accountId, "error", `Check failed: ${error instanceof Error ? error.message : "unknown error"}`);
   }
-  backWith(projectId, "notice", found.length > 0 ? "appstore_found" : "appstore_nothing_new");
+  appleBack(accountId, "notice", found.length > 0 ? "apple_found" : "apple_nothing_new");
+}
+
+/** Assigns the account's products to projects: one `product_<id>` field per product (empty = unassigned). */
+export async function assignAppleProductsAction(accountId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const products = await prisma.appleProduct.findMany({ where: { accountId }, select: { id: true } });
+  const projectIds = new Set((await prisma.project.findMany({ select: { id: true } })).map((p) => p.id));
+  for (const product of products) {
+    const value = formData.get(`product_${product.id}`);
+    if (value === null) continue;
+    const projectId = String(value);
+    if (projectId && !projectIds.has(projectId)) continue;
+    await prisma.appleProduct.update({ where: { id: product.id }, data: { projectId: projectId || null } });
+  }
+  appleBack(accountId, "notice", "apple_products_saved");
 }
 
 /** "1,18", "1.18" or "1 234,50" euro → cents. */
@@ -419,37 +458,79 @@ function euroCents(raw: string): number | null {
   return Math.round(Number(clean) * 100);
 }
 
-export async function issueAppStoreInvoiceAction(projectId: string, reportId: string, formData: FormData): Promise<void> {
+/** Issues the invoice to Apple for a report: one `amount_<projectId>` field per project of the report. */
+export async function issueAppleInvoiceAction(accountId: string, reportId: string, formData: FormData): Promise<void> {
   await requireAdmin();
-  const amountCents = euroCents(String(formData.get("amount") ?? ""));
-  const date = String(formData.get("date") ?? "");
-  const transactionId = String(formData.get("transactionId") ?? "").trim().slice(0, 60) || null;
-  if (!amountCents || amountCents <= 0) backWith(projectId, "error", "Type the amount in euro, for example 1,18.");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) backWith(projectId, "error", "Pick the invoice date.");
+  const account = await prisma.appleAccount.findUnique({ where: { id: accountId }, include: APPLE_ACCOUNT_INCLUDE });
+  if (!account) redirect("/admin/apple");
+  const report = await prisma.appStoreReport.findFirst({ where: { id: reportId, accountId } });
+  if (!report) appleBack(accountId, "error", "Report not found.");
+  const products = await prisma.appleProduct.findMany({ where: { accountId }, include: { project: { select: { name: true } } } });
+  const groups = groupReport(report.lines as unknown as ReportLine[], products, undefined);
+  if (groups.unassigned.length > 0) appleBack(accountId, "error", "Assign every product of the report to a project first.");
 
-  const project = await prisma.project.findUniqueOrThrow({ where: { id: projectId }, include: PROJECT_INCLUDE });
-  let notice = "appstore_issued";
-  try {
-    const invoice = await issueAppStoreInvoice(project, reportId, { amountCents, date, transactionId });
-    if (invoice.status === "FAILED") notice = "appstore_failed";
-  } catch (error) {
-    backWith(projectId, "error", error instanceof Error ? error.message : "Could not issue the invoice");
+  const lines = [];
+  for (const group of groups.projects) {
+    const amountCents = euroCents(String(formData.get(`amount_${group.projectId}`) ?? ""));
+    if (!amountCents || amountCents <= 0) appleBack(accountId, "error", `Type the amount in euro for ${group.projectName}, for example 1,18.`);
+    lines.push({ projectId: group.projectId, appName: group.projectName, amountCents });
   }
-  backWith(projectId, "notice", notice);
+  const date = String(formData.get("date") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) appleBack(accountId, "error", "Pick the invoice date.");
+  const transactionId = String(formData.get("transactionId") ?? "").trim().slice(0, 60) || null;
+
+  let notice = "apple_issued";
+  try {
+    const invoice = await issueAppStoreInvoice(account, reportId, { lines, date, transactionId });
+    if (invoice.status === "FAILED") notice = "apple_failed";
+  } catch (error) {
+    appleBack(accountId, "error", error instanceof Error ? error.message : "Could not issue the invoice");
+  }
+  appleBack(accountId, "notice", notice);
 }
 
 /** Marks a report as invoiced by hand, or (undo) ready again. */
-export async function setAppStoreReportDismissedAction(projectId: string, reportId: string, dismissed: boolean): Promise<void> {
+export async function setAppleReportDismissedAction(accountId: string, reportId: string, dismissed: boolean): Promise<void> {
   await requireAdmin();
   await prisma.appStoreReport.updateMany({
-    where: { id: reportId, invoiceId: null, account: { projectId } },
+    where: { id: reportId, accountId, invoiceId: null },
     data: { status: dismissed ? "DISMISSED" : "READY" },
   });
-  backWith(projectId, "notice", dismissed ? "appstore_dismissed" : "appstore_restored");
+  appleBack(accountId, "notice", dismissed ? "apple_dismissed" : "apple_restored");
 }
 
-export async function removeAppStoreAction(projectId: string): Promise<void> {
+/** Removes an Apple account that has no invoices; its reports and products go with it. */
+export async function removeAppleAccountAction(accountId: string): Promise<void> {
   await requireAdmin();
-  await prisma.appStoreAccount.deleteMany({ where: { projectId } });
-  redirect(`/admin/projects/${projectId}?notice=appstore_removed`);
+  if ((await prisma.invoice.count({ where: { appleAccountId: accountId } })) > 0) {
+    appleBack(accountId, "error", "This account has invoices to Apple, kept for the record: it cannot be removed.");
+  }
+  await prisma.appleAccount.delete({ where: { id: accountId } });
+  redirect("/admin/apple?notice=apple_removed");
+}
+
+export async function retryAppleInvoiceAction(accountId: string, invoiceId: string, formData?: FormData): Promise<void> {
+  await requireAdmin();
+  const account = await prisma.appleAccount.findUniqueOrThrow({ where: { id: accountId }, include: APPLE_ACCOUNT_INCLUDE });
+  let notice = "retried";
+  try {
+    const invoice = await retryAppleInvoice(account, invoiceId);
+    if (invoice.status === "FAILED") notice = "retry_failed";
+  } catch (error) {
+    notice = error instanceof ApiError ? `retry_error:${error.code}` : "retry_error";
+  }
+  redirect(invoicesReturnPath(null, formData, notice));
+}
+
+export async function deleteAppleInvoiceAction(accountId: string, invoiceId: string, formData?: FormData): Promise<void> {
+  await requireAdmin();
+  const account = await prisma.appleAccount.findUniqueOrThrow({ where: { id: accountId }, include: APPLE_ACCOUNT_INCLUDE });
+  let notice = "deleted";
+  try {
+    await deleteAppleInvoice(account, invoiceId);
+  } catch (error) {
+    if (!(error instanceof ApiError)) console.error("[fic-invoicing] unexpected error while deleting invoice", invoiceId, error);
+    notice = error instanceof ApiError ? `delete_error:${error.code}:${error.message}` : "delete_error";
+  }
+  redirect(invoicesReturnPath(null, formData, notice));
 }

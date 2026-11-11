@@ -109,10 +109,11 @@ model Company {
   /// After a real (non dry-run) invoice is created, ask FIC to send it to SDI.
   sendToSdi           Boolean       @default(false)
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  projects  Project[]
-  invoices  Invoice[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  projects      Project[]
+  invoices      Invoice[]
+  appleAccounts AppleAccount[]
 
   @@unique([accountId, ficCompanyId])
   @@map("companies")
@@ -150,10 +151,10 @@ model Project {
   stampDutyVatTypeId  Int?
   sendToSdi           Boolean?
 
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  invoices  Invoice[]
-  appStore  AppStoreAccount?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  invoices      Invoice[]
+  appleProducts AppleProduct[]
 
   @@index([companyId])
   @@map("projects")
@@ -161,8 +162,11 @@ model Project {
 
 model Invoice {
   id               String           @id @default(cuid())
-  projectId        String
-  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// Null for invoices to Apple, which belong to an Apple account.
+  projectId        String?
+  project          Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  appleAccountId   String?
+  appleAccount     AppleAccount?    @relation(fields: [appleAccountId], references: [id], onDelete: Restrict)
   /// The company that issued it: deleting it or resending it to SDI talks to this company.
   companyId        String?
   company          Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
@@ -195,21 +199,25 @@ model Invoice {
   @@unique([projectId, idempotencyKey])
   @@index([projectId, status, createdAt])
   @@index([companyId])
+  @@index([appleAccountId])
   @@map("invoices")
 }
 
-/// App Store Connect access of a project whose money comes from Apple, and how its invoices to Apple look.
-model AppStoreAccount {
+/// An Apple developer account (App Store Connect) whose apps belong to one or more projects. Apple pays
+/// it once per fiscal month for all its apps, and is invoiced once per report, one line per project.
+model AppleAccount {
   id               String           @id @default(cuid())
-  projectId        String           @unique
-  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label            String
   issuerId         String
   keyId            String
   /// The .p8 private key of the team API key (Finance access), AES-256-GCM encrypted.
   privateKeyEnc    String           @db.Text
   vendorNumber     String
-  /// App name printed in the invoice line description.
-  appName          String
+  /// The Fatture in Cloud company that issues the invoices to Apple.
+  companyId        String?
+  company          Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  /// When true the invoices to Apple are only validated, nothing is created in Fatture in Cloud.
+  dryRun           Boolean          @default(true)
   // --- Invoice to Apple ---
   /// { name, vatNumber, address, zipCode, city, province, countryCode }
   customer         Json
@@ -226,21 +234,44 @@ model AppStoreAccount {
   lastError        String?          @db.Text
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
+  products         AppleProduct[]
   reports          AppStoreReport[]
+  invoices         Invoice[]
 
-  @@map("app_store_accounts")
+  @@map("apple_accounts")
+}
+
+/// A product sold through an Apple account, as named in its reports (for an in-app purchase, the
+/// purchase, not the app), and the project it belongs to.
+model AppleProduct {
+  id        String       @id @default(cuid())
+  accountId String
+  account   AppleAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// "Apple Identifier" of the report.
+  appleId   String
+  /// "Vendor Identifier" (SKU) of the report.
+  sku       String
+  title     String
+  projectId String?
+  project   Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([accountId, appleId])
+  @@index([projectId])
+  @@map("apple_products")
 }
 
 /// An Apple financial report of one fiscal period, and the invoice issued from it.
 model AppStoreReport {
   id             String               @id @default(cuid())
   accountId      String
-  account        AppStoreAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account        AppleAccount         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   /// "<fiscal year>-<period>", the reportDate of the App Store Connect API.
   period         String
   periodStart    DateTime             @db.Date
   periodEnd      DateTime             @db.Date
-  /// [{ currency, amount, units, countries }], partner share in the sale currency.
+  /// [{ appleId, sku, title, currency, amount, units, countries }], partner share in the sale currency.
   lines          Json
   /// { date, rates: { USD: 1.11 } }: ECB reference rates (units per euro) of the day the report was found.
   ecbRates       Json?

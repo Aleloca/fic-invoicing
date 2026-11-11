@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/admin/tenants", destination: "/admin", permanent: true },
       { source: "/admin/tenants/:path*", destination: "/admin/projects/:path*", permanent: true },
+      // App Store settings moved from the project to Apple accounts.
+      { source: "/admin/projects/:id/appstore", destination: "/admin/apple", permanent: true },
     ];
   },
   async headers() {

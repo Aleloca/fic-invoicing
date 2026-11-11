@@ -7,7 +7,9 @@ import { PROJECT_INCLUDE, type ProjectWithCompany } from "@/lib/projects/config"
 export const hasTestDb = Boolean(process.env.TEST_DATABASE_URL);
 
 export async function resetDb(): Promise<void> {
+  await prisma.appStoreReport.deleteMany();
   await prisma.invoice.deleteMany();
+  await prisma.appleAccount.deleteMany();
   await prisma.project.deleteMany();
   await prisma.company.deleteMany();
   await prisma.ficAccount.deleteMany();
