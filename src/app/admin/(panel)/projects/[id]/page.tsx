@@ -40,6 +40,10 @@ export default async function ProjectPage({
   const missing = missingConfiguration(resolved.invoice);
   const progress = setupProgress(project);
   const lookups = await loadLookups(state === "ready" ? company : null);
+  const appStore = await prisma.appStoreAccount.findUnique({
+    where: { projectId: project.id },
+    select: { reports: { where: { status: "READY" }, select: { id: true } } },
+  });
 
   // Projects on the same company with the same effective numeration share one number sequence.
   const siblings = company
@@ -223,6 +227,29 @@ export default async function ProjectPage({
           </div>
         </section>
       </form>
+
+      <section className="section" id="app-store">
+        <SectionHead title="App Store">
+          For an app paid through Apple: invoices to Apple from its monthly financial reports.
+        </SectionHead>
+        <div className="section-body">
+          {appStore ? (
+            <p>
+              {appStore.reports.length > 0
+                ? `${appStore.reports.length} ${appStore.reports.length === 1 ? "report" : "reports"} to invoice.`
+                : "Connected. No report to invoice."}
+            </p>
+          ) : (
+            <p className="hint">Not set up.</p>
+          )}
+          <div className="btn-row">
+            <Link className={`btn${appStore?.reports.length ? "" : " secondary"}`} href={`/admin/projects/${project.id}/appstore`}>
+              {appStore ? "Open App Store" : "Set up App Store Connect"}
+              <ArrowRight />
+            </Link>
+          </div>
+        </div>
+      </section>
 
       <section className="section" id="api-key">
         <SectionHead title="API key">

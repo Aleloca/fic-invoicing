@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Plus } from "@/components/icons";
 import { Notices } from "@/components/notices";
 import { SetupLine, setupProgress } from "@/components/setup-line";
+import { labelEn, periodFromCode } from "@/lib/appstore/calendar";
 import { prisma } from "@/lib/prisma";
 import { PROJECT_INCLUDE } from "@/lib/projects/config";
 
@@ -10,7 +11,7 @@ export const metadata: Metadata = { title: "Projects" };
 
 export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
-  const [projects, failed] = await Promise.all([
+  const [projects, failed, appStoreReady] = await Promise.all([
     prisma.project.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -20,7 +21,16 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
       },
     }),
     prisma.invoice.groupBy({ by: ["projectId"], where: { status: "FAILED" }, _count: { _all: true } }),
+    prisma.appStoreReport.findMany({
+      where: { status: "READY", invoiceId: null },
+      orderBy: { period: "asc" },
+      select: { period: true, account: { select: { projectId: true } } },
+    }),
   ]);
+  const readyBy = new Map<string, string[]>();
+  for (const r of appStoreReady) {
+    readyBy.set(r.account.projectId, [...(readyBy.get(r.account.projectId) ?? []), labelEn(periodFromCode(r.period))]);
+  }
   const failedBy = new Map(failed.map((f) => [f.projectId, f._count._all]));
 
   return (
@@ -78,6 +88,12 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
                       className="mark failed project-failed"
                     >
                       {failedCount} failed {failedCount === 1 ? "invoice" : "invoices"}
+                    </Link>
+                  )}
+                  {readyBy.has(t.id) && (
+                    <Link href={`/admin/projects/${t.id}/appstore`} className="project-next">
+                      App Store report ready: {readyBy.get(t.id)!.join(", ")}
+                      <ArrowRight />
                     </Link>
                   )}
                   {progress.next && (

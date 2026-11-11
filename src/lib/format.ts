@@ -36,4 +36,6 @@ export const CATEGORY_LABELS: Record<CustomerCategory, string> = {
   EU_PRIVATE: "Private, EU",
   EXTRAEU_PRIVATE: "Private, outside EU",
   IT_BUSINESS: "Business, Italy",
+  // Only invoices to Apple (App Store payouts); the public API does not accept it.
+  EU_BUSINESS: "Business, EU",
 };

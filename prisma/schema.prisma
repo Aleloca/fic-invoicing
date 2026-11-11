@@ -21,6 +21,17 @@ enum CustomerCategory {
   EU_PRIVATE
   EXTRAEU_PRIVATE
   IT_BUSINESS
+  /// Business in another EU country (reverse charge). Used by the invoices to Apple, not by the public API.
+  EU_BUSINESS
+}
+
+enum AppStoreReportStatus {
+  /// Downloaded, waiting for the admin to issue the invoice.
+  READY
+  /// An invoice was issued from it.
+  INVOICED
+  /// Invoiced elsewhere, by hand.
+  DISMISSED
 }
 
 /// How the €2 stamp duty (imposta di bollo) is handled on FORFETTARIO invoices above €77.47.
@@ -139,9 +150,10 @@ model Project {
   stampDutyVatTypeId  Int?
   sendToSdi           Boolean?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
   invoices  Invoice[]
+  appStore  AppStoreAccount?
 
   @@index([companyId])
   @@map("projects")
@@ -178,8 +190,69 @@ model Invoice {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
+  appStoreReport AppStoreReport?
+
   @@unique([projectId, idempotencyKey])
   @@index([projectId, status, createdAt])
   @@index([companyId])
   @@map("invoices")
+}
+
+/// App Store Connect access of a project whose money comes from Apple, and how its invoices to Apple look.
+model AppStoreAccount {
+  id               String           @id @default(cuid())
+  projectId        String           @unique
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issuerId         String
+  keyId            String
+  /// The .p8 private key of the team API key (Finance access), AES-256-GCM encrypted.
+  privateKeyEnc    String           @db.Text
+  vendorNumber     String
+  /// App name printed in the invoice line description.
+  appName          String
+  // --- Invoice to Apple ---
+  /// { name, vatNumber, address, zipCode, city, province, countryCode }
+  customer         Json
+  itemName         String           @default("Distribuzione applicazioni mobili")
+  vatTypeId        Int?
+  paymentAccountId Int?
+  paymentMethodId  Int?
+  /// SDI ModalitaPagamento code. MP05 = bank transfer.
+  eiPaymentMethod  String           @default("MP05")
+  statement        String?          @db.Text
+  /// First Apple fiscal period ("<fiscal year>-<period>") not settled yet.
+  nextPeriod       String
+  lastCheckedAt    DateTime?
+  lastError        String?          @db.Text
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  reports          AppStoreReport[]
+
+  @@map("app_store_accounts")
+}
+
+/// An Apple financial report of one fiscal period, and the invoice issued from it.
+model AppStoreReport {
+  id             String               @id @default(cuid())
+  accountId      String
+  account        AppStoreAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// "<fiscal year>-<period>", the reportDate of the App Store Connect API.
+  period         String
+  periodStart    DateTime             @db.Date
+  periodEnd      DateTime             @db.Date
+  /// [{ currency, amount, units, countries }], partner share in the sale currency.
+  lines          Json
+  /// { date, rates: { USD: 1.11 } }: ECB reference rates (units per euro) of the day the report was found.
+  ecbRates       Json?
+  /// Euro estimate with the ECB rates; null when a currency has no ECB rate.
+  estimatedCents Int?
+  status         AppStoreReportStatus @default(READY)
+  detectedAt     DateTime             @default(now())
+  invoiceId      String?              @unique
+  invoice        Invoice?             @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([accountId, period])
+  @@map("app_store_reports")
 }

@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { vi } from "vitest";
 
 export interface FicMockOptions {
@@ -12,6 +13,10 @@ export interface FicMockOptions {
   user?: { id: number; name: string; email: string };
   /** Companies the user can access (GET /user/companies). */
   companies?: Array<{ id: number; name: string }>;
+  /** App Store Connect FINANCIAL reports (TSV) by fiscal period; other periods return 404. */
+  appleReports?: Record<string, string>;
+  /** ECB reference rates (units per euro) returned for any day. */
+  ecbRates?: Record<string, number>;
 }
 
 interface MockDocumentData {
@@ -87,6 +92,20 @@ export function installFicMock(options: FicMockOptions = {}) {
         status: 200,
         headers: { "Content-Type": "application/pdf", "Content-Length": "4" },
       });
+    }
+    if (url.hostname === "api.appstoreconnect.apple.com" && url.pathname === "/v1/financeReports") {
+      const tsv = options.appleReports?.[url.searchParams.get("filter[reportDate]") ?? ""];
+      if (tsv === undefined) return json(404, { errors: [{ status: "404", code: "NOT_FOUND", title: "The specified resource does not exist" }] });
+      return new Response(new Uint8Array(gzipSync(tsv)), { status: 200, headers: { "Content-Type": "application/a-gzip" } });
+    }
+    if (url.hostname === "data-api.ecb.europa.eu") {
+      const wanted = /\/EXR\/D\.([A-Z+]+)\.EUR/.exec(url.pathname)?.[1].split("+") ?? [];
+      const day = url.searchParams.get("endPeriod") ?? "2026-10-28";
+      const rows = wanted
+        .filter((c) => options.ecbRates?.[c] !== undefined)
+        .map((c) => `EXR.D.${c}.EUR.SP00.A,D,${c},EUR,SP00,A,${day},${options.ecbRates![c]},A`);
+      if (rows.length === 0) return new Response("No results found.", { status: 404 });
+      return new Response(["KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE,OBS_STATUS", ...rows].join("\n"), { status: 200 });
     }
     if (url.hostname !== "fic.test") throw new Error(`Unexpected fetch to ${url.href}`);
 
