@@ -1,0 +1,95 @@
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { POST as createInvoice } from "@/app/api/v1/invoices/route";
+import { decrypt } from "@/lib/crypto";
+import { getFicAccess } from "@/lib/fic/tokens";
+import { prisma } from "@/lib/prisma";
+import { createTenant, hasTestDb, resetDb } from "../helpers/db";
+import { installFicMock } from "../helpers/fic-mock";
+import { apiRequest } from "../helpers/http";
+
+describe.skipIf(!hasTestDb)("FIC token refresh (integration)", () => {
+  beforeEach(resetDb);
+  afterEach(() => vi.unstubAllGlobals());
+  afterAll(async () => {
+    await resetDb();
+    await prisma.$disconnect();
+  });
+
+  it("does not refresh a token that is valid for more than 5 minutes", async () => {
+    const fic = installFicMock();
+    const { tenant } = await createTenant({}, { expiresInMs: 10 * 60 * 1000 });
+    const access = await getFicAccess(tenant.id);
+    expect(access.accessToken).toBe("access-0");
+    expect(fic.state.refreshCount).toBe(0);
+  });
+
+  it("refreshes when less than 5 minutes remain and stores the rotated tokens encrypted", async () => {
+    const fic = installFicMock();
+    const { tenant } = await createTenant({}, { expiresInMs: 4 * 60 * 1000 });
+    const access = await getFicAccess(tenant.id);
+    expect(access).toEqual({ accessToken: "access-1", companyId: tenant.ficCompanyId });
+    const row = await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } });
+    expect(decrypt(row.refreshTokenEnc!)).toBe("refresh-1");
+    expect(row.refreshTokenEnc).not.toContain("refresh-1");
+    expect(row.tokenExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
+    expect(fic.state.refreshCount).toBe(1);
+  });
+
+  it("serializes concurrent refreshes: one call to FIC, everyone gets the new token", async () => {
+    // A slow FIC that rejects an already-rotated refresh token, like the real one.
+    const fic = installFicMock({ refreshDelayMs: 150 });
+    const { tenant } = await createTenant({}, { expiresInMs: -1000 });
+
+    const results = await Promise.all(Array.from({ length: 6 }, () => getFicAccess(tenant.id)));
+
+    expect(fic.state.refreshCount).toBe(1);
+    expect(new Set(results.map((r) => r.accessToken))).toEqual(new Set(["access-1"]));
+    const row = await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } });
+    expect(row.ficNeedsReconnect).toBe(false);
+    expect(decrypt(row.refreshTokenEnc!)).toBe("refresh-1");
+  });
+
+  it("marks the tenant for reconnection when FIC rejects the refresh token", async () => {
+    installFicMock({ validRefreshToken: "something-else" });
+    const { tenant, apiKey } = await createTenant({}, { expiresInMs: -1000 });
+
+    await expect(getFicAccess(tenant.id)).rejects.toMatchObject({ code: "fic_reconnect_required" });
+    const row = await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } });
+    expect(row.ficNeedsReconnect).toBe(true);
+    expect(row.ficLastError).toContain("invalid_grant");
+
+    const res = await createInvoice(
+      apiRequest("/api/v1/invoices", {
+        method: "POST",
+        apiKey,
+        body: {
+          idempotencyKey: "k",
+          amountCents: 100,
+          description: "x",
+          customer: {
+            category: "EXTRAEU_PRIVATE",
+            firstName: "A",
+            lastName: "B",
+            address: "1 St",
+            zipCode: "10001",
+            city: "NYC",
+            countryCode: "US",
+            email: "a@example.com",
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("fic_reconnect_required");
+  });
+
+  it("transient FIC errors do not flag the tenant", async () => {
+    const fic = installFicMock();
+    fic.fetchMock.mockImplementationOnce(async () => new Response("upstream down", { status: 503 }));
+    const { tenant } = await createTenant({}, { expiresInMs: -1000 });
+    await expect(getFicAccess(tenant.id)).rejects.toMatchObject({ status: 503 });
+    const row = await prisma.tenant.findUniqueOrThrow({ where: { id: tenant.id } });
+    expect(row.ficNeedsReconnect).toBe(false);
+    expect(decrypt(row.refreshTokenEnc!)).toBe("refresh-0");
+  });
+});
