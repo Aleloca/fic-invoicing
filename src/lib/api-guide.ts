@@ -125,6 +125,7 @@ Optional fields: \`firstName\` and \`lastName\` (max 100 characters), \`companyN
 | --- | --- |
 | \`id\` | Invoice id in this service. Use it for every other endpoint. |
 | \`status\` | \`PENDING\`, \`ISSUED\`, \`FAILED\` or \`DELETED\` (see *Statuses*). |
+| \`outcomeUnknown\` | \`true\` on a \`FAILED\` invoice whose creation may have reached Fatture in Cloud (see *Statuses*). |
 | \`number\` | Invoice number as printed, for example \`12/A\`. \`null\` for dry runs and failures. |
 | \`ficDocumentId\` | Document id in Fatture in Cloud. \`null\` for dry runs and failures. |
 | \`amountCents\` | The amount you sent, unchanged. |
@@ -179,9 +180,9 @@ Codes: \`unauthorized\`, \`forbidden\`, \`not_found\`, \`invalid_json\`, \`valid
 
 | Status | Meaning |
 | --- | --- |
-| \`PENDING\` | The request is being processed. It should not stay in this state. |
+| \`PENDING\` | The request is being processed. A row left \`PENDING\` for 10 minutes (the service stopped) becomes \`FAILED\` with \`outcomeUnknown: true\`. |
 | \`ISSUED\` | Created in Fatture in Cloud with a number. With \`dryRun: true\` it was only validated: there is no number and no document. |
-| \`FAILED\` | Fatture in Cloud refused it or could not be reached. No number was used. It can be retried. |
+| \`FAILED\` | Fatture in Cloud refused it or could not be reached. It can be retried. With \`outcomeUnknown: true\` (a timeout or 5xx while creating, or the service stopped mid-call) Fatture in Cloud may have created it anyway: the retry looks for the document there first and records it instead of creating a second one. |
 | \`DELETED\` | An admin deleted it before it was sent to SDI. It is not a valid invoice. |
 
 ## Behaviour to rely on

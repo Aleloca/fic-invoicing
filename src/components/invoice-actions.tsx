@@ -1,11 +1,20 @@
-import { deleteAppleInvoiceAction, deleteInvoiceAction, retryAppleInvoiceAction, retryInvoiceAction } from "@/app/admin/actions";
+import {
+  confirmNotInFicAction,
+  deleteAppleInvoiceAction,
+  deleteInvoiceAction,
+  retryAppleInvoiceAction,
+  retryInvoiceAction,
+} from "@/app/admin/actions";
 import { isDeletable } from "@/lib/invoices/service";
 import type { InvoiceRow } from "./invoice-table";
+import { SubmitButton } from "@/components/submit-button";
 
 /** Splits the `notice` query value set by the invoice actions into a success notice or an error. */
 export function invoiceNotice(raw: string | undefined): { notice?: string; error?: string } {
   if (!raw) return {};
-  if (raw.startsWith("retry_error")) return { error: `Retry refused (${raw})` };
+  if (raw.startsWith("retry_error")) {
+    return { error: `Retry refused: ${raw.split(":").slice(2).join(":") || "unexpected error, check the server logs"}` };
+  }
   if (raw.startsWith("delete_error")) {
     return {
       error: `Delete refused: ${raw.split(":").slice(2).join(":") || "unexpected error, check the server logs"}`,
@@ -40,17 +49,35 @@ export function InvoiceActions({
     "projectId" in owner ? deleteInvoiceAction.bind(null, owner.projectId, inv.id) : deleteAppleInvoiceAction.bind(null, owner.appleAccountId, inv.id);
   const sdiRetry = inv.status === "ISSUED" && inv.sdiError !== null && inv.sdiSentAt === null;
   const canRetry = inv.status === "FAILED" || sdiRetry;
-  const canDelete = isDeletable(inv);
+  const canDelete = isDeletable(inv) && !inv.outcomeUnknown;
+  const confirmNotThere = confirmNotInFicAction.bind(null, owner, inv.id);
   if (!canRetry && !canDelete) return null;
   return (
     <div className="row-actions">
       {canRetry && (
         <form action={retry}>
           <input type="hidden" name="returnTo" value={returnTo} />
-          <button type="submit" className="btn small">
-            {sdiRetry ? "Resend to SDI" : "Retry"}
-          </button>
+          <SubmitButton className="btn small">
+            {sdiRetry ? "Resend to SDI" : inv.outcomeUnknown ? "Check and retry" : "Retry"}
+          </SubmitButton>
         </form>
+      )}
+      {inv.outcomeUnknown && (
+        <details className="confirm">
+          <summary className="btn small secondary">Not in FIC</summary>
+          <div className="confirm-box">
+            <p>
+              Only if you checked Fatture in Cloud and this invoice is not there. Then it can be deleted, or retried
+              without looking for it.
+            </p>
+            <form action={confirmNotThere}>
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <SubmitButton className="btn small">
+                It is not there
+              </SubmitButton>
+            </form>
+          </div>
+        </details>
       )}
       {canDelete && (
         <details className="confirm">
@@ -59,9 +86,9 @@ export function InvoiceActions({
             <p>{deleteWarning(inv)}</p>
             <form action={remove}>
               <input type="hidden" name="returnTo" value={returnTo} />
-              <button type="submit" className="btn small danger solid">
+              <SubmitButton className="btn small danger solid">
                 Confirm delete
-              </button>
+              </SubmitButton>
             </form>
           </div>
         </details>

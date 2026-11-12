@@ -16,6 +16,7 @@ import {
 } from "@/lib/projects/config";
 import { loadLookups } from "@/lib/projects/lookups";
 import { removeCompanyAction, updateCompanyAction } from "../../../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export const metadata: Metadata = { title: "Company" };
 
@@ -147,9 +148,9 @@ export default async function CompanyPage({
             </div>
             <SettingsFields mode="company" regime={company.fiscalRegime} company={company} lookups={lookups} />
             <div className="form-foot">
-              <button type="submit" className="btn">
+              <SubmitButton className="btn">
                 Save defaults
-              </button>
+              </SubmitButton>
               <span className="hint">
                 {users.length === 0
                   ? "No project uses it yet."
@@ -167,9 +168,9 @@ export default async function CompanyPage({
           <SectionHead title="Remove">Unused: no project and no invoice refer to it.</SectionHead>
           <div className="section-body">
             <form action={removeCompanyAction.bind(null, company.id)}>
-              <button type="submit" className="btn danger">
+              <SubmitButton className="btn danger">
                 Remove this company
-              </button>
+              </SubmitButton>
             </form>
           </div>
         </section>

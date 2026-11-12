@@ -144,9 +144,10 @@ export function centsToEuros(cents: number): number {
   return Math.round(cents) / 100;
 }
 
-function requireId(value: number | null, label: string): number {
+/** A positive Fatture in Cloud id from the settings, or a configuration error naming what is missing. */
+export function requireId(value: number | null, label: string, owner = "The project settings"): number {
   if (value === null || !Number.isInteger(value) || value <= 0) {
-    throw new PayloadError("config", `The project settings are missing ${label}`);
+    throw new PayloadError("config", `${owner} are missing ${label}`);
   }
   return value;
 }

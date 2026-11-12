@@ -12,6 +12,8 @@ export interface InvoiceDto {
   stampDutyCents: number;
   dryRun: boolean;
   errorMessage: string | null;
+  /** FAILED after an unclear outcome: Fatture in Cloud may have created it. Retry looks for it first. */
+  outcomeUnknown: boolean;
   attempts: number;
   sdi: { sentAt: string | null; error: string | null };
   /** Set when status is DELETED: the document was deleted from Fatture in Cloud by an admin. */
@@ -32,7 +34,9 @@ export function toInvoiceDto(invoice: Invoice): InvoiceDto {
     amountCents: invoice.amountCents,
     stampDutyCents: invoice.stampDutyCents,
     dryRun: invoice.dryRun,
-    errorMessage: invoice.errorMessage,
+    // A row being deleted carries an internal marker, not an error.
+    errorMessage: invoice.errorMessage?.startsWith("deleting:") ? null : invoice.errorMessage,
+    outcomeUnknown: invoice.outcomeUnknown,
     attempts: invoice.attempts,
     sdi: { sentAt: invoice.sdiSentAt?.toISOString() ?? null, error: invoice.sdiError },
     deletedAt: invoice.deletedAt?.toISOString() ?? null,

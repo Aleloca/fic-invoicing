@@ -2572,3 +2572,72 @@ form:has(#fiscalRegime option[value="FORFETTARIO"]:checked) [data-only="ORDINARI
 form:has(#fiscalRegime option[value="ORDINARIO"]:checked) [data-only="FORFETTARIO"] {
   display: none;
 }
+
+/* ------------------------------------------------------------ Loading */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+.is-busy {
+  cursor: progress;
+}
+
+/* The pressed button keeps full contrast while the others of the form are dimmed. */
+.btn.is-busy:disabled {
+  opacity: 1;
+}
+
+.page-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 0;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+@keyframes route-progress {
+  from {
+    transform: scaleX(0.05);
+  }
+  to {
+    transform: scaleX(0.9);
+  }
+}
+
+.route-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: 3px;
+  background: var(--ink);
+  transform-origin: left;
+  animation: route-progress 4s cubic-bezier(0.1, 0.7, 0.2, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.4s !important;
+  }
+
+  .route-progress {
+    animation: none;
+    transform: scaleX(0.6);
+  }
+}

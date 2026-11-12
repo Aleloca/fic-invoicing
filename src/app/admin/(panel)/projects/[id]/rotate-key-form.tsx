@@ -4,9 +4,10 @@ import { useActionState } from "react";
 import { rotateApiKeyAction, type FormState } from "../../../actions";
 import { ApiKeyReveal } from "@/components/api-key-reveal";
 import { Notice } from "@/components/notices";
+import { SubmitButton } from "@/components/submit-button";
 
 export function RotateKeyForm({ projectId, prefix }: { projectId: string; prefix: string }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(rotateApiKeyAction, {});
+  const [state, action] = useActionState<FormState, FormData>(rotateApiKeyAction, {});
   return (
     <form
       action={action}
@@ -29,9 +30,7 @@ export function RotateKeyForm({ projectId, prefix }: { projectId: string; prefix
         </p>
       )}
       <div className="btn-row">
-        <button type="submit" className="btn danger" disabled={pending}>
-          {pending ? "Rotating…" : "Rotate API key"}
-        </button>
+        <SubmitButton className="btn danger" pendingLabel="Rotating…">Rotate API key</SubmitButton>
       </div>
     </form>
   );

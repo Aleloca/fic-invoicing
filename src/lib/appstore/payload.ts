@@ -8,6 +8,7 @@ import { getCountryNameForFIC } from "../fiscal/countries";
 import {
   centsToEuros,
   PayloadError,
+  requireId,
   type BuiltPayload,
   type FicIssuedDocumentRequest,
   type InvoiceConfig,
@@ -98,12 +99,7 @@ export function appStoreDescription(
     .replaceAll("{transaction}", tid ? `, Transaction ID: ${tid}` : "");
 }
 
-function requireId(value: number | null, label: string): number {
-  if (value === null || !Number.isInteger(value) || value <= 0) {
-    throw new PayloadError("config", `The App Store invoice settings are missing ${label}`);
-  }
-  return value;
-}
+const requireAppleId = (value: number | null, label: string) => requireId(value, label, "The App Store invoice settings");
 
 /**
  * Numeration and fiscal regime come from the project (its company); stamp duty, when due
@@ -118,9 +114,9 @@ export function buildAppStorePayload(
     throw new PayloadError("input", "Every line needs a positive amount in euro");
   }
   const amountCents = totalCents(input.lines);
-  const vatTypeId = requireId(settings.vatTypeId, "a VAT type");
-  const paymentAccountId = requireId(settings.paymentAccountId, "a payment account");
-  const paymentMethodId = requireId(settings.paymentMethodId, "a payment method");
+  const vatTypeId = requireAppleId(settings.vatTypeId, "a VAT type");
+  const paymentAccountId = requireAppleId(settings.paymentAccountId, "a payment account");
+  const paymentMethodId = requireAppleId(settings.paymentMethodId, "a payment method");
   const customer = parseCustomer(settings.customer);
   const country = getCountryNameForFIC(customer.countryCode);
   if (!customer.name || !customer.vatNumber || !country) {

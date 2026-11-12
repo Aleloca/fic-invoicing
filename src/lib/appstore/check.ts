@@ -16,6 +16,39 @@ const NO_SALES_AFTER_DAYS = 60;
 const DAY = 24 * 60 * 60 * 1000;
 
 
+/**
+ * Records the products of report lines: new ones are created, known ones get the report's name when
+ * `rename` (a newer report) and it changed. Batched: one query to read, one transaction to write.
+ */
+async function recordProducts(
+  accountId: string,
+  lines: { appleId: string; sku: string; title: string }[],
+  rename: boolean,
+): Promise<void> {
+  const byId = new Map(lines.filter((l) => l.appleId).map((l) => [l.appleId, l]));
+  if (byId.size === 0) return;
+  const known = await prisma.appleProduct.findMany({
+    where: { accountId, appleId: { in: [...byId.keys()] } },
+    select: { id: true, appleId: true, sku: true, title: true },
+  });
+  const knownIds = new Set(known.map((p) => p.appleId));
+  const renames = rename
+    ? known.flatMap((p) => {
+        const line = byId.get(p.appleId)!;
+        return line.sku !== p.sku || line.title !== p.title
+          ? [prisma.appleProduct.update({ where: { id: p.id }, data: { sku: line.sku, title: line.title } })]
+          : [];
+      })
+    : [];
+  await prisma.$transaction([
+    prisma.appleProduct.createMany({
+      data: [...byId.values()].filter((l) => !knownIds.has(l.appleId)).map((l) => ({ accountId, appleId: l.appleId, sku: l.sku, title: l.title })),
+      skipDuplicates: true,
+    }),
+    ...renames,
+  ]);
+}
+
 /** Stores the report of a period with the ECB rates of today. Returns false when Apple has none. */
 async function importPeriod(account: AppleAccount, credentials: AppStoreCredentials, code: string, today: string): Promise<boolean> {
   const tsv = await downloadFinancialReport(credentials, code);
@@ -38,13 +71,7 @@ async function importPeriod(account: AppleAccount, credentials: AppStoreCredenti
   }
 
   // Products seen for the first time wait for the admin to assign them to a project.
-  for (const line of lines) {
-    await prisma.appleProduct.upsert({
-      where: { accountId_appleId: { accountId: account.id, appleId: line.appleId } },
-      create: { accountId: account.id, appleId: line.appleId, sku: line.sku, title: line.title },
-      update: { sku: line.sku, title: line.title },
-    });
-  }
+  await recordProducts(account.id, lines, true);
 
   const period = periodFromCode(code);
   await prisma.appStoreReport.upsert({
@@ -146,14 +173,8 @@ export async function discoverProducts(accountId: string, now: Date = new Date()
   for (let i = 0; i < lookBack; i += 1, code = previousCode(code)) {
     const tsv = await downloadFinancialReport(credentials, code);
     if (tsv === null) continue;
-    for (const line of parseFinancialReport(tsv)) {
-      await prisma.appleProduct.upsert({
-        where: { accountId_appleId: { accountId, appleId: line.appleId } },
-        create: { accountId, appleId: line.appleId, sku: line.sku, title: line.title },
-        // Keep the newest name: periods are read from the latest backwards.
-        update: {},
-      });
-    }
+    // Keep the newest name: periods are read from the latest backwards.
+    await recordProducts(accountId, parseFinancialReport(tsv), false);
   }
   return (await prisma.appleProduct.count({ where: { accountId } })) - before;
 }

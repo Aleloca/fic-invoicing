@@ -19,6 +19,7 @@ import {
 import { loadLookups } from "@/lib/projects/lookups";
 import { reconnectAccountAction, updateProjectAction } from "../../../actions";
 import { RotateKeyForm } from "./rotate-key-form";
+import { SubmitButton } from "@/components/submit-button";
 
 export const metadata: Metadata = { title: "Project" };
 
@@ -147,9 +148,9 @@ export default async function ProjectPage({
           <div className="btn-row">
             {company && (state === "reconnect" || state === "not_connected") && (
               <form action={reconnectAccountAction.bind(null, company.accountId, project.id)}>
-                <button type="submit" className="btn">
+                <SubmitButton className="btn">
                   Reconnect {company.account.label}
-                </button>
+                </SubmitButton>
               </form>
             )}
             <Link className={`btn${company ? " secondary" : ""}`} href={`/admin/projects/${project.id}/company`}>
@@ -228,9 +229,9 @@ export default async function ProjectPage({
               </label>
             </div>
             <div className="form-foot">
-              <button type="submit" className="btn">
+              <SubmitButton className="btn">
                 Save settings
-              </button>
+              </SubmitButton>
               <span className="hint">Saves sections 2 and 3 together.</span>
             </div>
           </div>

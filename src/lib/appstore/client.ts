@@ -57,12 +57,8 @@ function describe(status: number, text: string): string {
  * The FINANCIAL report (all regions, `ZZ`) of a fiscal period, as TSV text.
  * Null when Apple has no report for it: not published yet, or no sales in that period.
  */
-export async function downloadFinancialReport(credentials: AppStoreCredentials, period: string): Promise<string | null> {
-  const url = new URL("/v1/financeReports", BASE_URL);
-  url.searchParams.set("filter[reportType]", "FINANCIAL");
-  url.searchParams.set("filter[regionCode]", "ZZ");
-  url.searchParams.set("filter[reportDate]", period);
-  url.searchParams.set("filter[vendorNumber]", credentials.vendorNumber);
+/** Downloads a gzipped TSV report; null when Apple has none (404). */
+async function downloadReport(credentials: AppStoreCredentials, url: URL): Promise<string | null> {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${appStoreToken(credentials)}`, Accept: "application/a-gzip" },
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -76,6 +72,15 @@ export async function downloadFinancialReport(credentials: AppStoreCredentials, 
   } catch {
     return body.toString("utf8");
   }
+}
+
+export async function downloadFinancialReport(credentials: AppStoreCredentials, period: string): Promise<string | null> {
+  const url = new URL("/v1/financeReports", BASE_URL);
+  url.searchParams.set("filter[reportType]", "FINANCIAL");
+  url.searchParams.set("filter[regionCode]", "ZZ");
+  url.searchParams.set("filter[reportDate]", period);
+  url.searchParams.set("filter[vendorNumber]", credentials.vendorNumber);
+  return downloadReport(credentials, url);
 }
 
 export interface AppleAppInfo {
@@ -122,19 +127,7 @@ export async function downloadMonthlySalesReport(credentials: AppStoreCredential
   url.searchParams.set("filter[reportDate]", month);
   url.searchParams.set("filter[vendorNumber]", credentials.vendorNumber);
   url.searchParams.set("filter[version]", "1_0");
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${appStoreToken(credentials)}`, Accept: "application/a-gzip" },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    cache: "no-store",
-  });
-  const body = Buffer.from(await response.arrayBuffer());
-  if (response.status === 404) return null;
-  if (!response.ok) throw new AppStoreError(response.status, describe(response.status, body.toString("utf8")));
-  try {
-    return gunzipSync(body).toString("utf8");
-  } catch {
-    return body.toString("utf8");
-  }
+  return downloadReport(credentials, url);
 }
 
 /** Apple Identifier → Parent Identifier (app SKU) of the in-app purchases in a sales report. */

@@ -57,11 +57,24 @@ export async function getFicAccess(accountId: string): Promise<string> {
   return refreshWithLock(accountId);
 }
 
+function rotatedFields(tokens: FicTokenResponse) {
+  return {
+    accessTokenEnc: encrypt(tokens.access_token),
+    refreshTokenEnc: encrypt(tokens.refresh_token),
+    tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+    lastError: null,
+  };
+}
+
 /** Refreshes the account tokens while holding a row lock. Exported for tests. */
 export async function refreshWithLock(accountId: string): Promise<string> {
   let rejection: string | null = null;
+  // FIC rotates the refresh token: once it has answered, the new pair is the only valid one.
+  let rotated: FicTokenResponse | null = null;
 
-  const access = await prisma.$transaction(
+  let access: string | null;
+  try {
+    access = await prisma.$transaction(
     async (tx) => {
       const rows = await tx.$queryRaw<TokenRow[]>`
         SELECT accessTokenEnc, refreshTokenEnc, tokenExpiresAt, needsReconnect
@@ -76,6 +89,7 @@ export async function refreshWithLock(accountId: string): Promise<string> {
       let tokens: FicTokenResponse;
       try {
         tokens = await refreshTokens(decrypt(row.refreshTokenEnc!));
+        rotated = tokens;
       } catch (error) {
         // 4xx: the refresh token was rejected (revoked, expired, already used).
         // Persist the state so admins and API callers can see it. 5xx / network
@@ -91,19 +105,20 @@ export async function refreshWithLock(accountId: string): Promise<string> {
         throw error;
       }
 
-      await tx.ficAccount.update({
-        where: { id: accountId },
-        data: {
-          accessTokenEnc: encrypt(tokens.access_token),
-          refreshTokenEnc: encrypt(tokens.refresh_token),
-          tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-          lastError: null,
-        },
-      });
+      await tx.ficAccount.update({ where: { id: accountId }, data: rotatedFields(tokens) });
       return tokens.access_token;
     },
     { maxWait: 20_000, timeout: 40_000 },
   );
+  } catch (error) {
+    // The transaction failed (timeout, lost connection) after FIC rotated the tokens:
+    // the rollback restored a refresh token FIC no longer accepts. Save the new pair anyway.
+    const fresh = rotated as FicTokenResponse | null;
+    if (!fresh) throw error;
+    console.warn("[fic-invoicing] token refresh transaction failed after rotation; saving the new tokens", error);
+    await prisma.ficAccount.update({ where: { id: accountId }, data: rotatedFields(fresh) });
+    return fresh.access_token;
+  }
 
   if (rejection || !access) throw reconnectRequired();
   return access;

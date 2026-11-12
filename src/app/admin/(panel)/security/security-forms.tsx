@@ -15,6 +15,7 @@ import {
   startTotpAction,
   type SecurityState,
 } from "../../security-actions";
+import { SubmitButton } from "@/components/submit-button";
 
 /** Recovery codes shown once, right after they are made. */
 function CodesReveal({ codes }: { codes: string[] }) {
@@ -50,7 +51,7 @@ export function TotpSection({
   lastFactor: boolean;
   setup: { qr: string; secret: string } | null;
 }) {
-  const [state, action, pending] = useActionState<SecurityState, FormData>(confirmTotpAction, {});
+  const [state, action] = useActionState<SecurityState, FormData>(confirmTotpAction, {});
   const justEnabled = state.done && enabled;
 
   if (enabled) {
@@ -66,9 +67,9 @@ export function TotpSection({
               {lastFactor ? "This is the last second factor: two-factor sign-in turns off." : "Codes from the app will no longer sign in."}
             </p>
             <form action={disableTotpAction}>
-              <button type="submit" className="btn small danger solid">
+              <SubmitButton className="btn small danger solid">
                 Remove authenticator app
-              </button>
+              </SubmitButton>
             </form>
           </div>
         </details>
@@ -102,14 +103,12 @@ export function TotpSection({
               placeholder="123456"
               required
             />
-            <button type="submit" className="btn" disabled={pending}>
-              {pending ? "Checking…" : "Confirm"}
-            </button>
+            <SubmitButton className="btn" pendingLabel="Checking…">Confirm</SubmitButton>
           </form>
           <form action={cancelTotpAction}>
-            <button type="submit" className="link-button">
+            <SubmitButton className="link-button">
               Cancel
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </div>
@@ -118,9 +117,9 @@ export function TotpSection({
 
   return (
     <form action={startTotpAction}>
-      <button type="submit" className="btn secondary">
+      <SubmitButton className="btn secondary">
         Set up authenticator app
-      </button>
+      </SubmitButton>
     </form>
   );
 }

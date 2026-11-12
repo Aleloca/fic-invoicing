@@ -1,5 +1,8 @@
 /** A report's lines grouped into invoice lines: one per app, or per project for products without an app. */
+import { lineEuroCents } from "./ecb";
 import type { ReportLine } from "./report";
+
+export { lineEuroCents };
 
 export interface InvoiceGroup {
   /** "app:<id>" or "project:<id>": the form field of its amount is `amount_<key>`. */
@@ -29,12 +32,6 @@ export interface GroupableProduct {
   app: { id: string; name: string; projectId: string | null; invoiceItemName: string | null; invoiceDescription: string | null } | null;
 }
 
-export function lineEuroCents(line: Pick<ReportLine, "currency" | "amount">, rates: Record<string, number> | undefined): number | null {
-  const amount = Number(line.amount);
-  if (line.currency === "EUR") return Math.round(amount * 100);
-  const rate = rates?.[line.currency];
-  return rate ? Math.round((amount / rate) * 100) : null;
-}
 
 export function groupReport(lines: ReportLine[], products: GroupableProduct[], rates: Record<string, number> | undefined): ReportGroups {
   const byApple = new Map(products.map((p) => [p.appleId, p]));

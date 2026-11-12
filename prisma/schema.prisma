@@ -184,6 +184,9 @@ model Invoice {
   ficNumber        String?
   dryRun           Boolean
   errorMessage     String?          @db.Text
+  /// FAILED after an unclear outcome (timeout, 5xx, a stop mid-call): Fatture in Cloud may have created
+  /// the document. A retry first looks for it there.
+  outcomeUnknown   Boolean          @default(false)
   attempts         Int              @default(0)
   /// Data needed to retry: contains the customer's personal data.
   /// Nulled once the invoice is ISSUED when PURGE_PAYLOAD_ON_SUCCESS=true (default).

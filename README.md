@@ -324,9 +324,9 @@ The customer data then lives in Fatture in Cloud, as with any e-invoice.
 ## Operations notes
 
 - **Token refresh.** Access tokens are refreshed when less than 5 minutes remain. The refresh runs inside a transaction holding `SELECT ... FOR UPDATE` on the Fatture in Cloud account row, so concurrent requests (from any of its projects) never use the same (rotating) refresh token twice. If Fatture in Cloud rejects the refresh token, the account is flagged **reconnect required** in the admin panel, with every project using it, and API calls return `409 fic_reconnect_required` until an admin reconnects.
-- **Stuck PENDING rows.** A PENDING row older than a few minutes means the process stopped during the FIC call. Check Fatture in Cloud before doing anything: the document may exist.
-- **Retries and duplicates.** Fatture in Cloud has no idempotency key. If a create call times out after FIC saved the document, a retry can create a second document. Check FIC before retrying invoices that failed with a timeout.
-- **Rate limit** is in memory and per process.
+- **Retries and duplicates.** Fatture in Cloud has no idempotency key. Every document is created with the invoice id in its internal subject (`fic-invoicing:<id>`, not printed). When the create call ends without a clear answer (timeout, network error, 5xx), the invoice is FAILED with `outcomeUnknown: true`: retry first looks for the document among the latest ones in Fatture in Cloud and records it if found, so no second document is created. If it cannot ask, it stops without creating anything. An admin who checked by hand can mark it *Not in FIC*.
+- **Stuck PENDING rows.** A row left PENDING for 10 minutes (the process stopped mid-call) is released every 5 minutes: an interrupted issue becomes FAILED with an unknown outcome, an interrupted delete returns to its previous status.
+- **Rate limit** is in memory and per process. The admin sign-in limits key on the last `X-Forwarded-For` entry, the one added by your reverse proxy: put the app behind exactly one proxy that appends it (nginx `$proxy_add_x_forwarded_for`). The second factor also has a global limit.
 - **SDI.** Creating an e-invoice in Fatture in Cloud does not transmit it. Enable *Send to SDI* on the company (or per project), or send them from Fatture in Cloud.
 
 ## Development

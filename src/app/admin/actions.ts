@@ -1,7 +1,6 @@
 "use server";
 
 import { Prisma } from "@prisma/client";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -19,6 +18,7 @@ import { ensureCompany } from "@/lib/projects/accounts";
 import { OVERRIDABLE, PROJECT_INCLUDE, type OverridableKey } from "@/lib/projects/config";
 import {
   APPLE_ACCOUNT_INCLUDE,
+  confirmNotInFic,
   deleteAppleInvoice,
   deleteInvoice,
   issueAppStoreInvoice,
@@ -30,6 +30,7 @@ import { groupReport } from "@/lib/appstore/groups";
 import type { ReportLine } from "@/lib/appstore/report";
 import { createOAuthState } from "@/lib/oauth-state";
 import { prisma } from "@/lib/prisma";
+import { clientIp } from "@/lib/client-ip";
 import { RateLimiter } from "@/lib/rate-limit";
 import { slugify } from "@/lib/slug";
 
@@ -42,7 +43,7 @@ export interface FormState {
 const loginLimiter = new RateLimiter(10);
 
 export async function loginAction(_prev: FormState, formData: FormData): Promise<FormState> {
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const ip = await clientIp();
   if (loginLimiter.hit(`login:${ip}`) > 0) return { error: "Too many attempts, try again in a minute." };
   const password = String(formData.get("password") ?? "");
   if (!password || !safeEqual(password, env.adminPassword())) return { error: "Wrong password." };
@@ -122,11 +123,11 @@ export async function disconnectAccountAction(accountId: string): Promise<void> 
   redirect(`/admin/fic?notice=disconnected`);
 }
 
-/** Removes an account and its companies, when no project uses them and no invoice was issued from them. */
+/** Removes an account and its companies, when no project or Apple account uses them and no invoice was issued from them. */
 export async function removeAccountAction(accountId: string): Promise<void> {
   await requireAdmin();
   const inUse = await prisma.company.count({
-    where: { accountId, OR: [{ projects: { some: {} } }, { invoices: { some: {} } }] },
+    where: { accountId, OR: [{ projects: { some: {} } }, { invoices: { some: {} } }, { appleAccounts: { some: {} } }] },
   });
   if (inUse > 0) redirect(`/admin/fic?error=account_in_use`);
   await prisma.$transaction([
@@ -143,15 +144,16 @@ export async function renameAccountAction(accountId: string, formData: FormData)
   redirect(`/admin/fic?notice=saved`);
 }
 
-/** Removes a company row that no project uses and no invoice was issued from. */
+/** Removes a company row that no project or Apple account uses and no invoice was issued from. */
 export async function removeCompanyAction(companyId: string): Promise<void> {
   await requireAdmin();
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { _count: { select: { projects: true, invoices: true } } },
+    select: { _count: { select: { projects: true, invoices: true, appleAccounts: true } } },
   });
   if (!company) redirect("/admin/fic");
-  if (company._count.projects > 0 || company._count.invoices > 0) redirect(`/admin/companies/${companyId}?error=company_in_use`);
+  const { projects, invoices, appleAccounts } = company._count;
+  if (projects > 0 || invoices > 0 || appleAccounts > 0) redirect(`/admin/companies/${companyId}?error=company_in_use`);
   await prisma.company.delete({ where: { id: companyId } });
   redirect(`/admin/fic?notice=company_removed`);
 }
@@ -305,7 +307,25 @@ export async function retryInvoiceAction(projectId: string, invoiceId: string, f
     const invoice = await retryInvoice(project, invoiceId);
     if (invoice.status === "FAILED") notice = "retry_failed";
   } catch (error) {
-    notice = error instanceof ApiError ? `retry_error:${error.code}` : "retry_error";
+    notice = error instanceof ApiError ? `retry_error:${error.code}:${error.message}` : "retry_error";
+  }
+  redirect(invoicesReturnPath(projectId, formData, notice));
+}
+
+/** The admin checked Fatture in Cloud: an invoice with an unknown outcome is not there. */
+export async function confirmNotInFicAction(
+  owner: { projectId: string } | { appleAccountId: string },
+  invoiceId: string,
+  formData?: FormData,
+): Promise<void> {
+  await requireAdmin();
+  const projectId = "projectId" in owner ? String(owner.projectId) : null;
+  const scope = projectId ? { projectId } : { appleAccountId: String((owner as { appleAccountId: string }).appleAccountId) };
+  let notice = "outcome_cleared";
+  try {
+    await confirmNotInFic(scope, invoiceId);
+  } catch (error) {
+    notice = error instanceof ApiError ? `retry_error:${error.code}:${error.message}` : "retry_error";
   }
   redirect(invoicesReturnPath(projectId, formData, notice));
 }
@@ -337,7 +357,7 @@ const appleSchema = z.object({
   keyId: z.string().trim().min(1, "required").max(40),
   vendorNumber: z.string().trim().regex(/^\d+$/, "digits only"),
   companyId: z.string().trim(),
-  itemName: z.string().trim().min(1, "required").max(200),
+  itemName: z.string().trim().min(1, "required").max(191),
   vatTypeId: optionalId,
   paymentAccountId: optionalId,
   paymentMethodId: optionalId,
@@ -479,23 +499,30 @@ export async function assignAppleProductsAction(accountId: string, formData: For
     const value = formData.get(name);
     return value === null ? undefined : String(value).trim().slice(0, max) || null;
   };
-  for (const app of await prisma.appleApp.findMany({ where: { accountId }, select: { id: true } })) {
+  // Only the rows that change, in one transaction.
+  const writes: Prisma.PrismaPromise<unknown>[] = [];
+  const apps = await prisma.appleApp.findMany({
+    where: { accountId },
+    select: { id: true, projectId: true, invoiceItemName: true, invoiceDescription: true },
+  });
+  for (const app of apps) {
     const projectId = valueOf(`app_${app.id}`);
-    const invoiceItemName = text(`appItem_${app.id}`, 200);
+    const invoiceItemName = text(`appItem_${app.id}`, 191);
     const invoiceDescription = text(`appDescription_${app.id}`, 1000);
-    await prisma.appleApp.update({
-      where: { id: app.id },
-      data: {
-        ...(projectId !== undefined ? { projectId } : {}),
-        ...(invoiceItemName !== undefined ? { invoiceItemName } : {}),
-        ...(invoiceDescription !== undefined ? { invoiceDescription } : {}),
-      },
-    });
+    const data = {
+      ...(projectId !== undefined && projectId !== app.projectId ? { projectId } : {}),
+      ...(invoiceItemName !== undefined && invoiceItemName !== app.invoiceItemName ? { invoiceItemName } : {}),
+      ...(invoiceDescription !== undefined && invoiceDescription !== app.invoiceDescription ? { invoiceDescription } : {}),
+    };
+    if (Object.keys(data).length > 0) writes.push(prisma.appleApp.update({ where: { id: app.id }, data }));
   }
-  for (const product of await prisma.appleProduct.findMany({ where: { accountId }, select: { id: true } })) {
+  for (const product of await prisma.appleProduct.findMany({ where: { accountId }, select: { id: true, projectId: true } })) {
     const projectId = valueOf(`product_${product.id}`);
-    if (projectId !== undefined) await prisma.appleProduct.update({ where: { id: product.id }, data: { projectId } });
+    if (projectId !== undefined && projectId !== product.projectId) {
+      writes.push(prisma.appleProduct.update({ where: { id: product.id }, data: { projectId } }));
+    }
   }
+  if (writes.length > 0) await prisma.$transaction(writes);
   appleBack(accountId, "notice", "apple_products_saved");
 }
 
@@ -572,7 +599,7 @@ export async function retryAppleInvoiceAction(accountId: string, invoiceId: stri
     const invoice = await retryAppleInvoice(account, invoiceId);
     if (invoice.status === "FAILED") notice = "retry_failed";
   } catch (error) {
-    notice = error instanceof ApiError ? `retry_error:${error.code}` : "retry_error";
+    notice = error instanceof ApiError ? `retry_error:${error.code}:${error.message}` : "retry_error";
   }
   redirect(invoicesReturnPath(null, formData, notice));
 }

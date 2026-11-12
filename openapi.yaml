@@ -284,6 +284,12 @@ components:
         stampDutyCents: { type: integer, description: "Stamp duty declared on the invoice (0 or 200). Charged to the customer as an extra line or borne by the seller, depending on the project's mode." }
         dryRun: { type: boolean }
         errorMessage: { type: [string, "null"] }
+        outcomeUnknown:
+          type: boolean
+          description: >-
+            True on a FAILED invoice whose creation may have reached Fatture in Cloud (timeout, 5xx, or the
+            service stopped mid-call). A retry first looks for the document there and records it instead of
+            creating a second one.
         attempts: { type: integer }
         sdi:
           type: object
