@@ -5,7 +5,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createAdminSession, destroyAdminSession, requireAdmin } from "@/lib/admin-session";
+import { factorState } from "@/lib/admin-security";
+import { createAdminSession, createPendingSession, destroyAdminSession, requireAdmin } from "@/lib/admin-session";
 import { generateApiKey } from "@/lib/api-key";
 import { checkAccount, discoverProducts, suggestStartPeriod } from "@/lib/appstore/check";
 import { decrypt, encrypt, safeEqual } from "@/lib/crypto";
@@ -45,6 +46,10 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
   if (loginLimiter.hit(`login:${ip}`) > 0) return { error: "Too many attempts, try again in a minute." };
   const password = String(formData.get("password") ?? "");
   if (!password || !safeEqual(password, env.adminPassword())) return { error: "Wrong password." };
+  if ((await factorState()).enabled) {
+    await createPendingSession();
+    redirect("/admin/login/verify");
+  }
   await createAdminSession();
   redirect("/admin");
 }

@@ -13,6 +13,8 @@ export async function resetDb(): Promise<void> {
   await prisma.project.deleteMany();
   await prisma.company.deleteMany();
   await prisma.ficAccount.deleteMany();
+  await prisma.adminPasskey.deleteMany();
+  await prisma.adminSecurity.deleteMany();
 }
 
 let counter = 0;
