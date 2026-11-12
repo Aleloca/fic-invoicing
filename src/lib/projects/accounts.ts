@@ -28,9 +28,10 @@ async function mergeAccount(from: FicAccount, into: FicAccount): Promise<void> {
         await tx.company.update({ where: { id: company.id }, data: { accountId: into.id } });
         continue;
       }
-      // The same FIC company on both: keep the twin and its defaults, move projects and invoices.
+      // The same FIC company on both: keep the twin and its defaults, move projects, invoices and Apple accounts.
       await tx.project.updateMany({ where: { companyId: company.id }, data: { companyId: twin.id } });
       await tx.invoice.updateMany({ where: { companyId: company.id }, data: { companyId: twin.id } });
+      await tx.appleAccount.updateMany({ where: { companyId: company.id }, data: { companyId: twin.id } });
       await tx.company.delete({ where: { id: company.id } });
     }
     await tx.ficAccount.delete({ where: { id: from.id } });
@@ -120,3 +121,6 @@ export function ensureCompany(accountId: string, company: FicCompany): Promise<C
     update: { name: company.name },
   });
 }
+
+/** Exported for tests. */
+export const mergeAccountForTests = mergeAccount;

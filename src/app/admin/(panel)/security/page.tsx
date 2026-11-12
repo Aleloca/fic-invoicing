@@ -8,6 +8,7 @@ import { relyingParty } from "@/lib/passkeys";
 import { prisma } from "@/lib/prisma";
 import { removePasskeyAction, renamePasskeyAction } from "../../security-actions";
 import { AddPasskey, RecoveryCodes, TotpSection } from "./security-forms";
+import { SubmitButton } from "@/components/submit-button";
 
 export const metadata: Metadata = { title: "Security" };
 
@@ -45,9 +46,9 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
                   <form action={renamePasskeyAction} className="rename-form">
                     <input type="hidden" name="id" value={p.id} />
                     <input type="text" name="name" defaultValue={p.name} aria-label="Passkey name" maxLength={80} required />
-                    <button type="submit" className="btn small secondary">
+                    <SubmitButton className="btn small secondary">
                       Rename
-                    </button>
+                    </SubmitButton>
                   </form>
                   <span className="hint">
                     Added {dateTime(p.createdAt)}
@@ -63,9 +64,9 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
                       </p>
                       <form action={removePasskeyAction}>
                         <input type="hidden" name="id" value={p.id} />
-                        <button type="submit" className="btn small danger solid">
+                        <SubmitButton className="btn small danger solid">
                           Remove passkey
-                        </button>
+                        </SubmitButton>
                       </form>
                     </div>
                   </details>

@@ -13,6 +13,7 @@ import {
   removeAccountAction,
   renameAccountAction,
 } from "../../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export const metadata: Metadata = { title: "Fatture in Cloud" };
 
@@ -42,10 +43,10 @@ export default async function FicAccountsPage({
         <h1>Fatture in Cloud</h1>
         <div className="actions">
           <form action={connectAccountAction.bind(null, null)}>
-            <button type="submit" className="btn">
+            <SubmitButton className="btn">
               <Plus />
               Connect an account
-            </button>
+            </SubmitButton>
           </form>
         </div>
         <p className="sub">
@@ -63,10 +64,10 @@ export default async function FicAccountsPage({
             business.
           </p>
           <form action={connectAccountAction.bind(null, null)}>
-            <button type="submit" className="btn">
+            <SubmitButton className="btn">
               <Plus />
               Connect Fatture in Cloud
-            </button>
+            </SubmitButton>
           </form>
         </div>
       ) : (
@@ -89,22 +90,22 @@ export default async function FicAccountsPage({
                   </div>
                   <div className="btn-row">
                     <form action={reconnectAccountAction.bind(null, account.id, null)}>
-                      <button type="submit" className={`btn small${connected ? " secondary" : ""}`}>
+                      <SubmitButton className={`btn small${connected ? " secondary" : ""}`}>
                         Reconnect
-                      </button>
+                      </SubmitButton>
                     </form>
                     {account.refreshTokenEnc && (
                       <form action={disconnectAccountAction.bind(null, account.id)}>
-                        <button type="submit" className="btn small danger">
+                        <SubmitButton className="btn small danger">
                           Disconnect
-                        </button>
+                        </SubmitButton>
                       </form>
                     )}
                     {!inUse && (
                       <form action={removeAccountAction.bind(null, account.id)}>
-                        <button type="submit" className="btn small danger">
+                        <SubmitButton className="btn small danger">
                           Remove
-                        </button>
+                        </SubmitButton>
                       </form>
                     )}
                   </div>
@@ -167,9 +168,9 @@ export default async function FicAccountsPage({
                       maxLength={100}
                       required
                     />
-                    <button type="submit" className="btn small secondary">
+                    <SubmitButton className="btn small secondary">
                       Save
-                    </button>
+                    </SubmitButton>
                   </form>
                 </details>
               </li>

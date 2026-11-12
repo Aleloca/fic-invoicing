@@ -51,13 +51,21 @@ export async function syncApps(accountId: string, now: Date = new Date()): Promi
   const account = await prisma.appleAccount.findUniqueOrThrow({ where: { id: accountId } });
   const credentials = credentialsOf(account);
 
-  for (const app of await listApps(credentials)) {
-    await prisma.appleApp.upsert({
-      where: { accountId_appleId: { accountId, appleId: app.appleId } },
-      create: { accountId, ...app },
-      update: { sku: app.sku, name: app.name },
-    });
-  }
+  // New apps in one insert; known ones only when their name or SKU changed.
+  const listed = await listApps(credentials);
+  const existing = new Map((await prisma.appleApp.findMany({ where: { accountId } })).map((a) => [a.appleId, a]));
+  await prisma.$transaction([
+    prisma.appleApp.createMany({
+      data: listed.filter((a) => !existing.has(a.appleId)).map((a) => ({ accountId, ...a })),
+      skipDuplicates: true,
+    }),
+    ...listed.flatMap((a) => {
+      const known = existing.get(a.appleId);
+      return known && (known.sku !== a.sku || known.name !== a.name)
+        ? [prisma.appleApp.update({ where: { id: known.id }, data: { sku: a.sku, name: a.name } })]
+        : [];
+    }),
+  ]);
   const apps = await prisma.appleApp.findMany({ where: { accountId } });
   const byAppleId = new Map(apps.map((a) => [a.appleId, a]));
   const bySku = new Map(apps.map((a) => [a.sku, a]));
@@ -82,12 +90,16 @@ export async function syncApps(accountId: string, now: Date = new Date()): Promi
   }
 
   const products = await prisma.appleProduct.findMany({ where: { id: { in: [...found.keys()] } } });
-  for (const product of products) {
-    const app = found.get(product.id)!;
-    await prisma.appleProduct.update({ where: { id: product.id }, data: { appId: app.id } });
-    if (product.projectId) {
-      await prisma.appleApp.updateMany({ where: { id: app.id, projectId: null }, data: { projectId: product.projectId } });
-    }
-  }
+  await prisma.$transaction(
+    products.flatMap((product) => {
+      const app = found.get(product.id)!;
+      return [
+        prisma.appleProduct.update({ where: { id: product.id }, data: { appId: app.id } }),
+        ...(product.projectId
+          ? [prisma.appleApp.updateMany({ where: { id: app.id, projectId: null }, data: { projectId: product.projectId } })]
+          : []),
+      ];
+    }),
+  );
   return found.size;
 }

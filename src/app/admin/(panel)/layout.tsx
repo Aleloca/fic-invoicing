@@ -3,6 +3,7 @@ import { AdminNav } from "@/components/admin-nav";
 import { BrandMark } from "@/components/brand";
 import { requireAdmin } from "@/lib/admin-session";
 import { logoutAction } from "../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export default async function PanelLayout({ children }: Readonly<{ children: Rea
         </Link>
         <AdminNav />
         <form action={logoutAction} className="rail-foot">
-          <button type="submit">Sign out</button>
+          <SubmitButton>Sign out</SubmitButton>
         </form>
       </header>
       <main className="workspace">{children}</main>

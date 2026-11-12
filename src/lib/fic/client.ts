@@ -207,6 +207,45 @@ export async function createIssuedDocument(
   };
 }
 
+export interface FicDocumentMatch {
+  id: number;
+  number: number | null;
+  numeration: string | null;
+}
+
+/**
+ * Looks for an issued document by its internal subject among the most recent ones (`pages` × 100).
+ * Throws when the response does not include the subject: then nothing can be concluded.
+ */
+export async function findIssuedDocumentBySubject(
+  token: string,
+  companyId: number,
+  subject: string,
+  pages = 3,
+): Promise<FicDocumentMatch | null> {
+  for (let page = 1; page <= pages; page += 1) {
+    const params = new URLSearchParams({
+      type: "invoice",
+      fields: "id,number,numeration,subject",
+      sort: "-id",
+      per_page: "100",
+      page: String(page),
+    });
+    const result = await ficRequest<{
+      data?: Array<{ id?: number; number?: number | null; numeration?: string | null; subject?: string | null }>;
+      last_page?: number;
+    }>(`/c/${companyId}/issued_documents?${params.toString()}`, { token });
+    const docs = result.data ?? [];
+    if (docs.length > 0 && !docs.every((d) => "subject" in d)) {
+      throw new Error("Fatture in Cloud did not return the document subjects: check the invoice by hand");
+    }
+    const match = docs.find((d) => d.subject === subject && typeof d.id === "number");
+    if (match) return { id: match.id!, number: match.number ?? null, numeration: match.numeration ?? null };
+    if (docs.length < 100 || (result.last_page !== undefined && page >= result.last_page)) break;
+  }
+  return null;
+}
+
 export interface FicDocumentTotals {
   amountNet: number | null;
   amountGross: number | null;

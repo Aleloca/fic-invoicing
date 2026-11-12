@@ -2,7 +2,6 @@
 
 import type { AuthenticationResponseJSON, PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   afterFactorRemoved,
@@ -20,13 +19,16 @@ import {
 import { createAdminSession, hasPendingSession, requireAdmin, storeChallenge, takeChallenge } from "@/lib/admin-session";
 import { authenticationOptions, registerPasskey, registrationOptions, verifyPasskey } from "@/lib/passkeys";
 import { prisma } from "@/lib/prisma";
+import { clientIp } from "@/lib/client-ip";
 import { RateLimiter } from "@/lib/rate-limit";
 
 const verifyLimiter = new RateLimiter(10);
+/** Across every address: the second factor cannot be guessed faster than this, whatever the source. */
+const verifyGlobalLimiter = new RateLimiter(20);
 
 async function limited(): Promise<boolean> {
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  return verifyLimiter.hit(`2fa:${ip}`) > 0;
+  const ip = await clientIp();
+  return verifyLimiter.hit(`2fa:${ip}`) > 0 || verifyGlobalLimiter.hit("2fa") > 0;
 }
 
 /** The factors changed: other sessions end, this one carries on with the new version. */

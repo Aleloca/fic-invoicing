@@ -16,6 +16,7 @@ export interface InvoiceRow {
   dryRun: boolean;
   attempts: number;
   errorMessage: string | null;
+  outcomeUnknown: boolean;
   sdiSentAt: Date | null;
   sdiError: string | null;
   deletedAt: Date | null;
@@ -36,6 +37,7 @@ export const INVOICE_ROW_SELECT = {
   dryRun: true,
   attempts: true,
   errorMessage: true,
+  outcomeUnknown: true,
   sdiSentAt: true,
   sdiError: true,
   deletedAt: true,
@@ -44,7 +46,13 @@ export const INVOICE_ROW_SELECT = {
 function Details({ inv }: { inv: InvoiceRow }) {
   return (
     <>
-      {inv.errorMessage && <span className="cell-error">{inv.errorMessage}</span>}
+      {inv.errorMessage && !inv.errorMessage.startsWith("deleting:") && <span className="cell-error">{inv.errorMessage}</span>}
+      {inv.outcomeUnknown && (
+        <span className="cell-error">
+          <strong>Outcome unknown:</strong> Fatture in Cloud may have created it. <em>Check and retry</em> looks for it
+          there before creating anything.
+        </span>
+      )}
       {inv.sdiError && <span className="cell-error">SDI: {inv.sdiError}</span>}
       {inv.sdiSentAt && <span className="cell-sub">Sent to SDI {dateTime(inv.sdiSentAt)}</span>}
       {inv.deletedAt && <span className="cell-sub">Deleted {dateTime(inv.deletedAt)}</span>}

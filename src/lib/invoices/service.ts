@@ -9,6 +9,8 @@ import {
   createIssuedDocument,
   deleteIssuedDocument,
   FicHttpError,
+  findIssuedDocumentBySubject,
+  type FicCreatedDocument,
   sendEInvoice,
   type FicDocumentTotals,
 } from "../fic/client";
@@ -270,10 +272,12 @@ async function issue(issuer: Issuer, invoice: Invoice, build: () => BuiltPayload
   });
   // The customer data is no longer needed once the outcome is final.
   const purge = env.purgePayloadOnSuccess() ? { requestPayload: Prisma.DbNull } : {};
+  let creating = false;
+  let document: FicCreatedDocument | null = null;
 
   try {
     const company = assertIssuerReady(issuer);
-    const built = build();
+    const built = withMarker(build(), invoice.id);
     const token = await getFicAccess(company.accountId);
 
     const totals = await computeIssuedDocumentTotals(token, company.ficCompanyId, built.body);
@@ -288,6 +292,7 @@ async function issue(issuer: Issuer, invoice: Invoice, build: () => BuiltPayload
           ficNumber: null,
           stampDutyCents: built.stampDutyCents,
           errorMessage: null,
+          outcomeUnknown: false,
           sdiSentAt: null,
           sdiError: null,
           ...purge,
@@ -295,9 +300,10 @@ async function issue(issuer: Issuer, invoice: Invoice, build: () => BuiltPayload
       });
     }
 
-    const document = await createIssuedDocument(token, company.ficCompanyId, built.body);
+    creating = true;
+    document = await createIssuedDocument(token, company.ficCompanyId, built.body);
+    creating = false;
     const documentId = document.id && document.id > 0 ? document.id : null;
-    const number = document.number !== null ? `${document.number}${document.numeration ?? issuer.numeration ?? ""}` : null;
 
     let sdiSentAt: Date | null = null;
     let sdiError: string | null = null;
@@ -313,11 +319,8 @@ async function issue(issuer: Issuer, invoice: Invoice, build: () => BuiltPayload
     return await prisma.invoice.update({
       where: { id: invoice.id },
       data: {
-        status: "ISSUED",
-        ficDocumentId: documentId,
-        ficNumber: number,
+        ...issuedFields(document, issuer),
         stampDutyCents: built.stampDutyCents,
-        errorMessage: null,
         sdiSentAt,
         sdiError,
         ...purge,
@@ -327,11 +330,100 @@ async function issue(issuer: Issuer, invoice: Invoice, build: () => BuiltPayload
     if (!(error instanceof FicHttpError || error instanceof ApiError || error instanceof TotalsCheckError)) {
       console.error("[fic-invoicing] unexpected error while issuing invoice", invoice.id, error);
     }
+    // The document exists in FIC: whatever failed afterwards, the invoice is issued.
+    if (document) {
+      return prisma.invoice.update({ where: { id: invoice.id }, data: issuedFields(document, issuer) });
+    }
+    // A refusal (4xx) means nothing was created. A timeout, a network error or a 5xx while creating
+    // does not tell: FIC may have saved the document, so a retry must look for it first.
+    const unknown = creating && !isRejection(error);
     return prisma.invoice.update({
       where: { id: invoice.id },
-      data: { status: "FAILED", errorMessage: errorMessageOf(error) },
+      data: {
+        status: "FAILED",
+        outcomeUnknown: unknown,
+        errorMessage: errorMessageOf(error),
+      },
     });
   }
+}
+
+/** A definite refusal from FIC: the document was not created. */
+function isRejection(error: unknown): boolean {
+  return error instanceof FicHttpError && error.status >= 400 && error.status < 500 && error.status !== 408;
+}
+
+/** The internal subject (not printed) that lets a retry find the FIC document of an invoice. */
+export function invoiceMarker(invoiceId: string): string {
+  return `fic-invoicing:${invoiceId}`;
+}
+
+function withMarker(built: BuiltPayload, invoiceId: string): BuiltPayload {
+  return { ...built, body: { ...built.body, data: { ...built.body.data, subject: invoiceMarker(invoiceId) } } };
+}
+
+function issuedFields(document: FicCreatedDocument, issuer: Issuer) {
+  const documentId = document.id && document.id > 0 ? document.id : null;
+  return {
+    status: "ISSUED" as const,
+    ficDocumentId: documentId,
+    ficNumber: document.number !== null ? `${document.number}${document.numeration ?? issuer.numeration ?? ""}` : null,
+    errorMessage: null,
+    outcomeUnknown: false,
+  };
+}
+
+/** A PENDING row older than this was abandoned (the process stopped mid-call). */
+const STALE_PENDING_MS = 10 * 60 * 1000;
+/** Marks a PENDING row that is being deleted, with the status to go back to. */
+const DELETING = "deleting:";
+
+/**
+ * Releases rows left PENDING by a process that stopped: an issue becomes FAILED with an unknown
+ * outcome (a retry looks for the document in FIC first), an interrupted delete goes back to its
+ * previous status (deleting again is safe: FIC answers 404 for a document already gone).
+ */
+export async function recoverStalePending(now: Date = new Date()): Promise<number> {
+  const before = new Date(now.getTime() - STALE_PENDING_MS);
+  const stale = await prisma.invoice.findMany({
+    where: { status: "PENDING", updatedAt: { lt: before } },
+    select: { id: true, errorMessage: true, updatedAt: true },
+  });
+  let recovered = 0;
+  for (const row of stale) {
+    const deleting = row.errorMessage?.startsWith(DELETING) ? row.errorMessage.slice(DELETING.length) : null;
+    const data: Prisma.InvoiceUpdateManyMutationInput =
+      deleting === "ISSUED" || deleting === "FAILED"
+        ? { status: deleting, errorMessage: null }
+        : {
+            status: "FAILED",
+            outcomeUnknown: true,
+            errorMessage: "The service stopped while this invoice was being issued",
+          };
+    // Only if nobody touched it meanwhile.
+    const { count } = await prisma.invoice.updateMany({
+      where: { id: row.id, status: "PENDING", updatedAt: row.updatedAt },
+      data,
+    });
+    recovered += count;
+  }
+  return recovered;
+}
+
+/**
+ * Looks in FIC for the document of an invoice whose outcome is unknown. Found: the invoice is
+ * recorded as ISSUED. Not found: the outcome is cleared, so it can be issued again.
+ */
+async function resolveUnknownOutcome(issuer: Issuer, invoice: Invoice): Promise<Invoice> {
+  const company = assertIssuerReady(issuer);
+  const token = await getFicAccess(company.accountId);
+  const found = await findIssuedDocumentBySubject(token, company.ficCompanyId, invoiceMarker(invoice.id));
+  if (!found) return prisma.invoice.update({ where: { id: invoice.id }, data: { outcomeUnknown: false } });
+  const purge = env.purgePayloadOnSuccess() ? { requestPayload: Prisma.DbNull } : {};
+  return prisma.invoice.update({
+    where: { id: invoice.id },
+    data: { ...issuedFields({ ...found, amountDue: null }, issuer), sdiSentAt: null, sdiError: null, ...purge },
+  });
 }
 
 async function findInvoice(scope: Issuer["scope"], id: string): Promise<Invoice> {
@@ -354,6 +446,7 @@ async function retryWith(
   id: string,
   builderFor: (payload: Prisma.JsonValue, invoice: Invoice) => () => BuiltPayload,
 ): Promise<Invoice> {
+  await recoverStalePending();
   const invoice = await findInvoice(issuer.scope, id);
 
   if (invoice.status === "DELETED") {
@@ -378,7 +471,24 @@ async function retryWith(
   });
   if (claimed.count !== 1) throw new ApiError(409, "conflict", "This invoice is already being retried");
 
-  const fresh = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+  let fresh = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+  if (fresh.outcomeUnknown) {
+    try {
+      fresh = await resolveUnknownOutcome(issuer, fresh);
+    } catch (error) {
+      // Could not tell: leave it as it was, never create a second document blindly.
+      await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "FAILED" } });
+      throw new ApiError(
+        502,
+        "fic_error",
+        `Could not check whether Fatture in Cloud already created this invoice: ${errorMessageOf(error)}`,
+      );
+    }
+    if (fresh.status === "ISSUED") {
+      await markAppStoreReport(fresh);
+      return fresh;
+    }
+  }
   const issued = await issue(issuer, fresh, build);
   await markAppStoreReport(issued);
   return issued;
@@ -430,6 +540,7 @@ export function isDeletable(invoice: Pick<Invoice, "status" | "sdiSentAt">): boo
  * in the numbering.
  */
 async function deleteWith(issuer: Issuer, id: string): Promise<Invoice> {
+  await recoverStalePending();
   const invoice = await findInvoice(issuer.scope, id);
   if (invoice.status === "DELETED") return invoice;
   if (invoice.sdiSentAt !== null) {
@@ -438,13 +549,31 @@ async function deleteWith(issuer: Issuer, id: string): Promise<Invoice> {
   if (invoice.status === "PENDING") {
     throw new ApiError(409, "conflict", "This invoice is still being processed: wait until it is issued or failed");
   }
+  if (invoice.outcomeUnknown) {
+    throw new ApiError(
+      409,
+      "conflict",
+      "Fatture in Cloud may have created this invoice: retry it first (it looks for the document there), or confirm it is not there",
+    );
+  }
+  const previous = invoice.status as "ISSUED" | "FAILED";
+
+  // Claim the row, so a concurrent retry or delete cannot run on it meanwhile.
+  const claimed = await prisma.invoice.updateMany({
+    where: { id: invoice.id, ...issuer.scope, status: previous, sdiSentAt: null, outcomeUnknown: false },
+    data: { status: "PENDING", errorMessage: `${DELETING}${previous}` },
+  });
+  if (claimed.count !== 1) throw new ApiError(409, "conflict", "This invoice changed meanwhile: reload and try again");
+  const release = () =>
+    prisma.invoice.update({ where: { id: invoice.id }, data: { status: previous, errorMessage: invoice.errorMessage } });
 
   if (invoice.ficDocumentId !== null) {
-    const company = await companyOfInvoiceFor(issuer, invoice);
-    const token = await getFicAccess(company.accountId);
     try {
+      const company = await companyOfInvoiceFor(issuer, invoice);
+      const token = await getFicAccess(company.accountId);
       await deleteIssuedDocument(token, company.ficCompanyId, invoice.ficDocumentId);
     } catch (error) {
+      await release();
       if (error instanceof FicHttpError) throw new ApiError(502, "fic_error", error.message);
       throw error;
     }
@@ -452,11 +581,18 @@ async function deleteWith(issuer: Issuer, id: string): Promise<Invoice> {
 
   const deleted = await prisma.invoice.update({
     where: { id: invoice.id },
-    data: { status: "DELETED", deletedAt: new Date() },
+    data: { status: "DELETED", deletedAt: new Date(), errorMessage: invoice.errorMessage },
   });
   // An App Store report whose invoice is deleted can be invoiced again.
   await prisma.appStoreReport.updateMany({ where: { invoiceId: invoice.id }, data: { status: "READY", invoiceId: null } });
   return deleted;
+}
+
+/** The admin checked Fatture in Cloud by hand: the invoice is not there, so it can be retried or deleted. */
+export async function confirmNotInFic(where: Issuer["scope"], id: string): Promise<Invoice> {
+  const invoice = await findInvoice(where, id);
+  if (!invoice.outcomeUnknown) return invoice;
+  return prisma.invoice.update({ where: { id: invoice.id }, data: { outcomeUnknown: false } });
 }
 
 export function deleteInvoice(project: ProjectWithCompany, id: string): Promise<Invoice> {

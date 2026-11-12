@@ -32,7 +32,7 @@ export const STATUS_INFO: Record<InvoiceStatus, { label: string; tone: string; m
   FAILED: {
     label: "Failed",
     tone: "failed",
-    meaning: "Fatture in Cloud refused it or could not be reached. No number was used; it can be retried.",
+    meaning: "Fatture in Cloud refused it or could not be reached; it can be retried. With outcome unknown it may exist there: the retry checks first.",
   },
   DELETED: {
     label: "Deleted",

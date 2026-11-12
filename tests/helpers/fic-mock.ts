@@ -7,6 +7,11 @@ export interface FicMockOptions {
   refreshDelayMs?: number;
   /** Make the document creation fail with this HTTP status. */
   failCreateWith?: number;
+  /**
+   * The creation saves the document, then the answer is lost: a status (e.g. 504) or "network"
+   * (fetch throws). Models a timeout after FIC created the invoice.
+   */
+  createSavesThenFails?: number | "network";
   /** Make the totals endpoint fail with this HTTP status. */
   failTotalsWith?: number;
   /** The FIC user behind every access token (GET /user/info). */
@@ -25,6 +30,7 @@ export interface FicMockOptions {
 
 interface MockDocumentData {
   numeration?: string;
+  subject?: string;
   e_invoice?: boolean;
   use_gross_prices?: boolean;
   stamp_duty?: number;
@@ -73,6 +79,9 @@ export function installFicMock(options: FicMockOptions = {}) {
     refreshCount: 0,
     nextNumber: 1,
     failCreateWith: options.failCreateWith ?? 0,
+    createSavesThenFails: options.createSavesThenFails ?? (0 as number | "network"),
+    /** Created documents, for the list endpoint. */
+    saved: new Map<number, { number: number; numeration: string; subject: string }>(),
     failTotalsWith: options.failTotalsWith ?? 0,
     /** When set, the totals endpoint reports this amount due instead of the computed one. */
     amountDueOverride: null as number | null,
@@ -173,8 +182,25 @@ export function installFicMock(options: FicMockOptions = {}) {
       }
       const number = state.nextNumber++;
       state.documents.add(5000 + number);
+      state.saved.set(5000 + number, { number, numeration: doc.data.numeration ?? "", subject: doc.data.subject ?? "" });
+      if (state.createSavesThenFails === "network") throw new TypeError("fetch failed");
+      if (state.createSavesThenFails) return json(state.createSavesThenFails, { error: { message: "Gateway timeout" } });
       return json(200, {
         data: { id: 5000 + number, number, numeration: doc.data.numeration ?? "", amount_due: totals.amount_due },
+      });
+    }
+
+    if (method === "GET" && match) {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "50");
+      const all = [...state.saved.entries()]
+        .filter(([id]) => state.documents.has(id))
+        .sort(([a], [b]) => b - a)
+        .map(([id, d]) => ({ id, number: d.number, numeration: d.numeration, subject: d.subject }));
+      return json(200, {
+        data: all.slice((page - 1) * perPage, page * perPage),
+        current_page: page,
+        last_page: Math.max(1, Math.ceil(all.length / perPage)),
       });
     }
 

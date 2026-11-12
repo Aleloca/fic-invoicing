@@ -48,17 +48,21 @@ export async function fetchEcbRates(currencies: string[], day: string): Promise<
  * Euro cents of the report lines at these rates. Null when a currency has no rate: the admin
  * then types the amount. Each currency is converted and rounded on its own, like Apple's payment.
  */
-export function estimateCents(lines: { currency: string; amount: string }[], rates: Record<string, number>): number | null {
+/** Euro cents of one report line at the given rates (units per euro); null without a rate. */
+export function lineEuroCents(line: { currency: string; amount: string | number }, rates: Record<string, number> | undefined): number | null {
+  const amount = Number(line.amount);
+  if (line.currency === "EUR") return Math.round(amount * 100);
+  const rate = rates?.[line.currency];
+  return rate ? Math.round((amount / rate) * 100) : null;
+}
+
+/** Sum of the lines in euro cents; null when a currency has no rate. */
+export function estimateCents(lines: { currency: string; amount: string | number }[], rates: Record<string, number>): number | null {
   let total = 0;
   for (const line of lines) {
-    const amount = Number(line.amount);
-    if (line.currency === "EUR") {
-      total += Math.round(amount * 100);
-      continue;
-    }
-    const rate = rates[line.currency];
-    if (!rate) return null;
-    total += Math.round((amount / rate) * 100);
+    const cents = lineEuroCents(line, rates);
+    if (cents === null) return null;
+    total += cents;
   }
   return total;
 }

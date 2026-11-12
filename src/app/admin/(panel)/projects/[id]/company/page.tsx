@@ -9,6 +9,7 @@ import { getFicAccess } from "@/lib/fic/tokens";
 import { prisma } from "@/lib/prisma";
 import { consolidateAccounts } from "@/lib/projects/accounts";
 import { connectAccountAction, reconnectAccountAction, selectCompanyAction } from "../../../../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export const metadata: Metadata = { title: "Choose the company" };
 
@@ -72,10 +73,10 @@ export default async function CompanyPickerPage({
           <h2>No Fatture in Cloud account yet</h2>
           <p>Connect the Fatture in Cloud user that owns the company. Its companies then show up here.</p>
           <form action={connectAccountAction.bind(null, project.id)}>
-            <button type="submit" className="btn">
+            <SubmitButton className="btn">
               <Plus />
               Connect Fatture in Cloud
-            </button>
+            </SubmitButton>
           </form>
         </div>
       ) : (
@@ -96,14 +97,9 @@ export default async function CompanyPickerPage({
                 )}
                 {!usable ? (
                   <div className="btn-row">
-                    <button
-                      type="submit"
-                      formAction={reconnectAccountAction.bind(null, account.id, project.id)}
-                      formNoValidate
-                      className="btn secondary"
-                    >
+                    <SubmitButton formAction={reconnectAccountAction.bind(null, account.id, project.id)} formNoValidate className="btn secondary">
                       Reconnect to list its companies
-                    </button>
+                    </SubmitButton>
                   </div>
                 ) : companies.length === 0 && !loadError ? (
                   <p className="hint">This Fatture in Cloud user has no companies.</p>
@@ -141,19 +137,14 @@ export default async function CompanyPickerPage({
           })}
           <div className="form-foot" style={{ paddingTop: 24 }}>
             {anyCompany && (
-              <button type="submit" className="btn">
+              <SubmitButton className="btn">
                 Use this company
-              </button>
+              </SubmitButton>
             )}
-            <button
-              type="submit"
-              formAction={connectAccountAction.bind(null, project.id)}
-              formNoValidate
-              className="btn secondary"
-            >
+            <SubmitButton formAction={connectAccountAction.bind(null, project.id)} formNoValidate className="btn secondary">
               <Plus />
               Connect another account
-            </button>
+            </SubmitButton>
           </div>
         </form>
       )}

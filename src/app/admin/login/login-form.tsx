@@ -3,9 +3,10 @@
 import { useActionState } from "react";
 import { loginAction, type FormState } from "../actions";
 import { Notice } from "@/components/notices";
+import { SubmitButton } from "@/components/submit-button";
 
 export function LoginForm() {
-  const [state, action, pending] = useActionState<FormState, FormData>(loginAction, {});
+  const [state, action] = useActionState<FormState, FormData>(loginAction, {});
   return (
     <form action={action}>
       <h1>Sign in</h1>
@@ -18,9 +19,7 @@ export function LoginForm() {
         <label htmlFor="password">Admin password</label>
         <input id="password" name="password" type="password" autoComplete="current-password" required autoFocus />
       </div>
-      <button type="submit" className="btn" disabled={pending}>
-        {pending ? "Signing in…" : "Sign in"}
-      </button>
+      <SubmitButton className="btn" pendingLabel="Signing in…">Sign in</SubmitButton>
     </form>
   );
 }

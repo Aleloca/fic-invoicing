@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import { Notice } from "@/components/notices";
 import { passkeyLoginOptionsAction, passkeyLoginVerifyAction, verifyCodeAction, type VerifyState } from "../../security-actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export function VerifyForm({ passkeys, totp }: { passkeys: boolean; totp: boolean }) {
   const router = useRouter();
-  const [state, action, pending] = useActionState<VerifyState, FormData>(verifyCodeAction, {});
+  const [state, action] = useActionState<VerifyState, FormData>(verifyCodeAction, {});
   const [method, setMethod] = useState<"totp" | "recovery">(totp ? "totp" : "recovery");
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
@@ -80,9 +81,7 @@ export function VerifyForm({ passkeys, totp }: { passkeys: boolean; totp: boolea
           <span className="hint">One of the codes you saved when you turned on two-factor sign-in. Each works once.</span>
         </div>
       )}
-      <button type="submit" className={passkeys ? "btn secondary" : "btn"} disabled={pending}>
-        {pending ? "Checking…" : "Confirm"}
-      </button>
+      <SubmitButton className={passkeys ? "btn secondary" : "btn"} pendingLabel="Checking…">Confirm</SubmitButton>
       <div className="btn-row">
         {totp && (
           <button type="button" className="link-button" onClick={() => setMethod(method === "totp" ? "recovery" : "totp")}>

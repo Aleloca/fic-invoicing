@@ -6,9 +6,10 @@ import { createProjectAction, type FormState } from "../../../actions";
 import { ApiKeyReveal } from "@/components/api-key-reveal";
 import { ArrowRight } from "@/components/icons";
 import { Notice } from "@/components/notices";
+import { SubmitButton } from "@/components/submit-button";
 
 export function NewProjectForm({ companies }: { companies: { id: string; label: string }[] }) {
-  const [state, action, pending] = useActionState<FormState, FormData>(createProjectAction, {});
+  const [state, action] = useActionState<FormState, FormData>(createProjectAction, {});
 
   if (state.apiKey && state.projectId) {
     return (
@@ -65,9 +66,7 @@ export function NewProjectForm({ companies }: { companies: { id: string; label: 
         </div>
       )}
       <div className="form-foot">
-        <button type="submit" className="btn" disabled={pending}>
-          {pending ? "Creating…" : "Create project"}
-        </button>
+        <SubmitButton className="btn" pendingLabel="Creating…">Create project</SubmitButton>
       </div>
     </form>
   );

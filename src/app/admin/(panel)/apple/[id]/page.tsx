@@ -29,6 +29,7 @@ import {
   removeAppleAccountAction,
   setAppleReportDismissedAction,
 } from "../../../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 export const metadata: Metadata = { title: "Apple account" };
 
@@ -86,9 +87,9 @@ export default async function AppleAccountPage({
         <h1>{account.label}</h1>
         <div className="actions">
           <form action={checkAppleAccountAction.bind(null, account.id)}>
-            <button type="submit" className="btn secondary">
+            <SubmitButton className="btn secondary">
               Check now
-            </button>
+            </SubmitButton>
           </form>
         </div>
         <p className="sub">
@@ -257,17 +258,12 @@ export default async function AppleAccountPage({
                           </span>
                         </p>
                         <div className="btn-row">
-                          <button type="submit" className="btn">
+                          <SubmitButton className="btn">
                             Issue invoice to Apple
-                          </button>
-                          <button
-                            type="submit"
-                            formAction={setAppleReportDismissedAction.bind(null, account.id, r.id, true)}
-                            formNoValidate
-                            className="btn secondary"
-                          >
+                          </SubmitButton>
+                          <SubmitButton formAction={setAppleReportDismissedAction.bind(null, account.id, r.id, true)} formNoValidate className="btn secondary">
                             Already invoiced elsewhere
-                          </button>
+                          </SubmitButton>
                         </div>
                       </form>
                     )
@@ -286,9 +282,9 @@ export default async function AppleAccountPage({
         </SectionHead>
         <div className="section-body">
           <form action={discoverAppleProductsAction.bind(null, account.id)}>
-            <button type="submit" className="btn secondary small">
+            <SubmitButton className="btn secondary small">
               Load apps and products
-            </button>
+            </SubmitButton>
           </form>
           {apps.length === 0 && orphans.length === 0 ? (
             <p className="hint">Nothing yet. Load the apps and the products sold in the last two years.</p>
@@ -337,7 +333,7 @@ export default async function AppleAccountPage({
                               id={`appItem_${app.id}`}
                               name={`appItem_${app.id}`}
                               type="text"
-                              maxLength={200}
+                              maxLength={191}
                               defaultValue={app.invoiceItemName ?? ""}
                               placeholder={account.itemName}
                             />
@@ -399,9 +395,9 @@ export default async function AppleAccountPage({
                 </>
               )}
               <div className="form-foot" style={{ paddingTop: 16 }}>
-                <button type="submit" className={`btn${unassignedApps.length || unassigned.length ? "" : " secondary"}`}>
+                <SubmitButton className={`btn${unassignedApps.length || unassigned.length ? "" : " secondary"}`}>
                   Save apps
-                </button>
+                </SubmitButton>
               </div>
             </form>
           )}
@@ -432,9 +428,9 @@ export default async function AppleAccountPage({
                     <>
                       <span className="hint">Invoiced elsewhere</span>
                       <form action={setAppleReportDismissedAction.bind(null, account.id, r.id, false)}>
-                        <button type="submit" className="btn small secondary">
+                        <SubmitButton className="btn small secondary">
                           Undo
-                        </button>
+                        </SubmitButton>
                       </form>
                     </>
                   ) : (
@@ -457,9 +453,9 @@ export default async function AppleAccountPage({
         <SectionHead title="Remove">Stops the checks and forgets the key. Not possible once it has invoices.</SectionHead>
         <div className="section-body">
           <form action={removeAppleAccountAction.bind(null, account.id)}>
-            <button type="submit" className="btn danger">
+            <SubmitButton className="btn danger">
               Remove this Apple account
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </section>

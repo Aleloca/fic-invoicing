@@ -24,6 +24,7 @@ const NOTICES: Record<string, string> = {
   totp_removed: "Authenticator app removed.",
   passkey_removed: "Passkey removed.",
   recovery_used: "Signed in with a recovery code. It cannot be used again: generate new codes if few are left.",
+  outcome_cleared: "Marked as not in Fatture in Cloud: the invoice can now be retried or deleted.",
   retry_failed: "The retry reached Fatture in Cloud, which returned an error: see the invoice row.",
 };
 
@@ -33,8 +34,8 @@ const ERRORS: Record<string, string> = {
   oauth_unknown_account: "That Fatture in Cloud account no longer exists here. Connect it again as a new account.",
   oauth_different_user:
     "You authorized a different Fatture in Cloud user from the one of this account. Reconnect with the same user, or connect the other user as a new account.",
-  account_in_use: "This account still has companies used by projects. Move those projects to another company first.",
-  company_in_use: "This company is still used by projects. Move them to another company first.",
+  account_in_use: "This account still has companies used by projects or Apple accounts, or with invoices. Move them to another company first.",
+  company_in_use: "This company is still used by projects or Apple accounts, or has invoices. Move them to another company first.",
   oauth_callback_failed: "Could not complete the Fatture in Cloud authorization. Check the server logs.",
   unknown_company: "Pick one of the listed companies.",
 };

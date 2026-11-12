@@ -5,6 +5,7 @@ import type { Lookups, Option } from "@/lib/projects/lookups";
 import { saveAppleAccountAction } from "@/app/admin/actions";
 import { SectionHead } from "./section-head";
 import { Notice } from "./notices";
+import { SubmitButton } from "@/components/submit-button";
 
 function IdSelect({ name, label, value, options, hint }: { name: string; label: string; value: number | null; options: Option[] | null; hint?: string }) {
   return (
@@ -177,7 +178,7 @@ export function AppleSettingsForm({
           <div className="fields">
             <div className="field">
               <label htmlFor="itemName">Line name</label>
-              <input id="itemName" name="itemName" type="text" required defaultValue={account?.itemName ?? "Distribuzione applicazioni mobili"} />
+              <input id="itemName" name="itemName" type="text" required maxLength={191} defaultValue={account?.itemName ?? "Distribuzione applicazioni mobili"} />
             </div>
             <IdSelect name="vatTypeId" label="VAT type" value={account?.vatTypeId ?? null} options={lookups.vatTypes} hint="Operations not subject to VAT, art. 7-ter (N2.1)." />
             <IdSelect name="paymentAccountId" label="Payment account" value={account?.paymentAccountId ?? null} options={lookups.paymentAccounts} hint="The bank account Apple pays into." />
@@ -201,9 +202,9 @@ export function AppleSettingsForm({
             Forfettario: above €77.47 the €2 stamp duty is declared and borne by you, never charged to Apple.
           </p>
           <div className="form-foot">
-            <button type="submit" className="btn">
+            <SubmitButton className="btn">
               {account ? "Save settings" : "Connect App Store Connect"}
-            </button>
+            </SubmitButton>
           </div>
         </div>
       </section>
