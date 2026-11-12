@@ -21,6 +21,9 @@ const NOTICES: Record<string, string> = {
   apple_removed: "Apple account removed.",
   retried: "Invoice retried.",
   deleted: "Invoice deleted. The row is kept with status Deleted, under the Deleted tab.",
+  totp_removed: "Authenticator app removed.",
+  passkey_removed: "Passkey removed.",
+  recovery_used: "Signed in with a recovery code. It cannot be used again: generate new codes if few are left.",
   retry_failed: "The retry reached Fatture in Cloud, which returned an error: see the invoice row.",
 };
 

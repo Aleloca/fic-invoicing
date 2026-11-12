@@ -12,6 +12,7 @@ const LINKS = [
     match: (p: string) => p.startsWith("/admin/fic") || p.startsWith("/admin/companies"),
   },
   { href: "/admin/apple", label: "Apple", match: (p: string) => p.startsWith("/admin/apple") },
+  { href: "/admin/security", label: "Security", match: (p: string) => p.startsWith("/admin/security") },
   { href: "/admin/api", label: "API reference", match: (p: string) => p.startsWith("/admin/api") },
 ];
 

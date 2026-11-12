@@ -319,3 +319,36 @@ model AppStoreReport {
   @@unique([accountId, period])
   @@map("app_store_reports")
 }
+
+/// Second factor of the admin panel. A single row, id 1.
+model AdminSecurity {
+  id             Int      @id @default(1)
+  /// Base32 TOTP secret, encrypted. Null when the authenticator app is off.
+  totpSecretEnc  String?  @db.Text
+  /// Secret shown in the QR code, waiting for the first code to confirm it.
+  totpPendingEnc String?  @db.Text
+  /// Last accepted 30-second step: a code is accepted once.
+  totpLastStep   Int?
+  /// [{ hash, usedAt }]: sha256 of the one-time recovery codes.
+  recoveryCodes  Json?
+  /// Bumped when the factors change: sessions signed with an older version are rejected.
+  sessionVersion Int      @default(1)
+  updatedAt      DateTime @updatedAt
+
+  @@map("admin_security")
+}
+
+/// A WebAuthn credential (passkey or security key) that can confirm an admin sign-in.
+model AdminPasskey {
+  id           String    @id @default(cuid())
+  /// base64url credential id.
+  credentialId String    @unique @db.VarChar(512)
+  publicKey    Bytes     @db.Blob
+  counter      Int       @default(0)
+  transports   Json?
+  name         String
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("admin_passkeys")
+}

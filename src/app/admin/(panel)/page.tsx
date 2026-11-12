@@ -6,6 +6,7 @@ import { SetupLine, setupProgress } from "@/components/setup-line";
 import { labelEn, periodFromCode } from "@/lib/appstore/calendar";
 import { productProject } from "@/lib/appstore/apps";
 import type { ReportLine } from "@/lib/appstore/report";
+import { factorState } from "@/lib/admin-security";
 import { prisma } from "@/lib/prisma";
 import { PROJECT_INCLUDE } from "@/lib/projects/config";
 
@@ -13,7 +14,7 @@ export const metadata: Metadata = { title: "Projects" };
 
 export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
-  const [projects, failed, appStoreReady, appleProducts] = await Promise.all([
+  const [projects, failed, appStoreReady, appleProducts, security] = await Promise.all([
     prisma.project.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -35,6 +36,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
     prisma.appleProduct.findMany({
       include: { project: { select: { name: true } }, app: { include: { project: { select: { name: true } } } } },
     }),
+    factorState(),
   ]);
   const unassignedProducts = appleProducts.filter((p) => !productProject(p));
   // A report ready on an Apple account is flagged on every project whose products it sells.
@@ -67,6 +69,12 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
         </p>
       </div>
       <Notices error={error} />
+      {!security.enabled && (
+        <Notice tone="warn">
+          Two-factor sign-in is off: the password alone opens this panel.{" "}
+          <Link href="/admin/security">Add a passkey or an authenticator app</Link>.
+        </Notice>
+      )}
       {unassignedProducts.length > 0 && (
         <Notice tone="warn">
           Some Apple apps or products have no project yet:{" "}

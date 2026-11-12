@@ -41,6 +41,7 @@ fiscal wording, country mapping, retries and idempotency each time. This service
 - OAuth tokens encrypted at rest (AES-256-GCM); token refresh serialized per Fatture in Cloud account with a database row lock, because Fatture in Cloud rotates refresh tokens.
 - Admin panel: projects, Fatture in Cloud accounts and companies, company defaults and per-project overrides with dropdowns for VAT types, payment accounts and methods, invoice lists (per project and across projects) with retry and deletion of invoices not sent to SDI, and an API reference page that can be copied or downloaded as Markdown for coding agents.
 - Customer personal data is not kept after success (configurable).
+- Two-factor sign-in for the admin panel: after the password, a passkey (Face ID, Touch ID, Windows Hello, security key) or a code from an authenticator app, with one-time recovery codes. See [Admin sign-in](#admin-sign-in).
 
 ## Quickstart (Docker Compose)
 
@@ -290,6 +291,24 @@ Deleting an invoice that is not the latest of its numeration leaves a gap in the
 - `IT_BUSINESS` invoices are B2B: the customer's partita IVA, SDI recipient code (`0000000` + PEC when missing).
 - Other invoices are B2C, with the configured SDI payment method (`MP08`, payment card, by default).
 - Country names are mapped from ISO codes to the Italian names Fatture in Cloud expects.
+
+## Admin sign-in
+
+The panel has one admin, signed in with `ADMIN_PASSWORD`. Under **Security** you can add a second factor:
+
+- **Passkeys**: Face ID, Touch ID, Windows Hello or a security key. They are bound to the host of `PUBLIC_BASE_URL`: changing the domain means adding them again.
+- **Authenticator app**: any TOTP app (1Password, Google Authenticator, Authy…): scan the QR code and confirm with the first code.
+
+Once either exists, every sign-in asks for the password and then a passkey or a code; there is no "remember this device". The first factor comes with 10 one-time **recovery codes**, shown once; new ones can be generated from the same page. Adding or removing a factor signs out every other session.
+
+**Locked out?** Run the reset script on the server: it removes every passkey and the authenticator app, and signs out every session; the password alone opens the panel again.
+
+```bash
+# Node deployment, from the release folder, with the same environment as the app
+node scripts/reset-2fa.mjs
+# Docker Compose
+docker compose exec app node scripts/reset-2fa.mjs
+```
 
 ## Data and privacy
 

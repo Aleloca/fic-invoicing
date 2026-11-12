@@ -2340,3 +2340,92 @@ details.confirm .confirm-box p {
     order: 3;
   }
 }
+
+/* ---------------------------------------------------------- Security */
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.factor-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--hair);
+}
+
+.factor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.factor-row .rename-form {
+  margin-top: 0;
+  flex: 1 1 280px;
+}
+
+.factor-row .hint {
+  flex: 1 1 200px;
+}
+
+.totp-setup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.qr {
+  width: 200px;
+  flex: 0 0 200px;
+  padding: 8px;
+  background: #fff;
+  border: 2px solid var(--ink);
+}
+
+.qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.totp-steps {
+  flex: 1 1 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.totp-steps .rename-form {
+  margin-top: 0;
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px 20px;
+  margin: 0;
+  padding-left: 1.6em;
+  font-size: 15px;
+}
+
+.rename-form .btn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.login-form .btn-row {
+  gap: 20px;
+}
