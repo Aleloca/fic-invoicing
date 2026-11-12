@@ -245,18 +245,22 @@ model AppleAccount {
 
 /// An app of an Apple account (from the App Store Connect API), and the project it belongs to.
 model AppleApp {
-  id        String         @id @default(cuid())
-  accountId String
-  account   AppleAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id                 String         @id @default(cuid())
+  accountId          String
+  account            AppleAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   /// Apple app id.
-  appleId   String
-  sku       String
-  name      String
-  projectId String?
-  project   Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  products  AppleProduct[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  appleId            String
+  sku                String
+  name               String
+  projectId          String?
+  project            Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Name of its invoice line; null uses the account's line name.
+  invoiceItemName    String?
+  /// Description of its invoice line, with {periodo} and {transaction}; null uses the default text.
+  invoiceDescription String?        @db.Text
+  products           AppleProduct[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   @@unique([accountId, appleId])
   @@index([projectId])

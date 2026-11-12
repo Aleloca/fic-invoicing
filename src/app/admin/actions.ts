@@ -470,9 +470,22 @@ export async function assignAppleProductsAction(accountId: string, formData: For
     const id = String(value);
     return id && projectIds.has(id) ? id : id ? undefined : null;
   };
+  const text = (name: string, max: number) => {
+    const value = formData.get(name);
+    return value === null ? undefined : String(value).trim().slice(0, max) || null;
+  };
   for (const app of await prisma.appleApp.findMany({ where: { accountId }, select: { id: true } })) {
     const projectId = valueOf(`app_${app.id}`);
-    if (projectId !== undefined) await prisma.appleApp.update({ where: { id: app.id }, data: { projectId } });
+    const invoiceItemName = text(`appItem_${app.id}`, 200);
+    const invoiceDescription = text(`appDescription_${app.id}`, 1000);
+    await prisma.appleApp.update({
+      where: { id: app.id },
+      data: {
+        ...(projectId !== undefined ? { projectId } : {}),
+        ...(invoiceItemName !== undefined ? { invoiceItemName } : {}),
+        ...(invoiceDescription !== undefined ? { invoiceDescription } : {}),
+      },
+    });
   }
   for (const product of await prisma.appleProduct.findMany({ where: { accountId }, select: { id: true } })) {
     const projectId = valueOf(`product_${product.id}`);
@@ -499,10 +512,18 @@ export async function issueAppleInvoiceAction(accountId: string, reportId: strin
   if (groups.unassigned.length > 0) appleBack(accountId, "error", "Assign every product of the report to a project first.");
 
   const lines = [];
-  for (const group of groups.projects) {
-    const amountCents = euroCents(String(formData.get(`amount_${group.projectId}`) ?? ""));
-    if (!amountCents || amountCents <= 0) appleBack(accountId, "error", `Type the amount in euro for ${group.projectName}, for example 1,18.`);
-    lines.push({ projectId: group.projectId, appName: group.projectName, amountCents });
+  for (const group of groups.groups) {
+    const amountCents = euroCents(String(formData.get(`amount_${group.key}`) ?? ""));
+    if (!amountCents || amountCents <= 0) {
+      appleBack(accountId, "error", `Type the amount in euro for ${group.appName ?? group.projectName}, for example 1,18.`);
+    }
+    lines.push({
+      projectId: group.projectId,
+      appName: group.projectName,
+      itemName: group.itemName,
+      description: group.description,
+      amountCents,
+    });
   }
   const date = String(formData.get("date") ?? "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) appleBack(accountId, "error", "Pick the invoice date.");

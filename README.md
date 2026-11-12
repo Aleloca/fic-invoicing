@@ -139,7 +139,10 @@ default) from the App Store financial reports: *Apple* in the admin.
   the euro amounts estimated at the **ECB reference rate** of the day it was found. Apple's report has no euro amount:
   compare the total with the Payments page of App Store Connect, correct the amounts if needed, add the transaction
   id, and issue.
-- **One invoice per report, one line per project** ("Proventi da distribuzione app <project>, …"), issued from the
+- **One invoice per report, one line per app** (per project for products without an app). Each app can set its
+  line name and description, with `{app}`, `{periodo}` and `{transaction}`; by default "Proventi da distribuzione app
+  <project>, report finanziario Apple periodo fiscale <Mese AAAA>, Transaction ID: …". The transaction id and the
+  euro amount are only on the Payments page (Apple has no payments API): type them when issuing. The invoice is issued from the
   account's company with its numeration and SDI sending, and the account's dry run. Customer with VAT number and
   recipient code `XXXXXXX`, the VAT type, payment account and method chosen on the account (non-taxable art. 7-ter and
   bank transfer, `MP05`). It is listed as "Apple · <account>" and can be retried or deleted like any invoice. Forfettario stamp duty above €77.47 is declared and borne by

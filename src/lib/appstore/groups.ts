@@ -1,19 +1,32 @@
-/** A report's lines grouped by the project their product belongs to. */
-import type { AppleProduct } from "@prisma/client";
+/** A report's lines grouped into invoice lines: one per app, or per project for products without an app. */
 import type { ReportLine } from "./report";
 
-export interface ProjectGroup {
+export interface InvoiceGroup {
+  /** "app:<id>" or "project:<id>": the form field of its amount is `amount_<key>`. */
+  key: string;
   projectId: string;
   projectName: string;
+  /** The app's name on App Store Connect, when the group is an app. */
+  appName: string | null;
+  itemName: string | null;
+  description: string | null;
   lines: ReportLine[];
   /** Euro cents at the ECB rates; null when a currency has no rate. */
   estimatedCents: number | null;
 }
 
 export interface ReportGroups {
-  projects: ProjectGroup[];
-  /** Lines whose product is not assigned to a project yet (or older reports without products). */
+  groups: InvoiceGroup[];
+  /** Lines whose product has no project yet (or older reports without products). */
   unassigned: ReportLine[];
+}
+
+export interface GroupableProduct {
+  appleId: string;
+  /** The effective project (its app's, or its own when the app is unknown). */
+  projectId: string | null;
+  project: { name: string } | null;
+  app: { id: string; name: string; projectId: string | null; invoiceItemName: string | null; invoiceDescription: string | null } | null;
 }
 
 export function lineEuroCents(line: Pick<ReportLine, "currency" | "amount">, rates: Record<string, number> | undefined): number | null {
@@ -23,13 +36,9 @@ export function lineEuroCents(line: Pick<ReportLine, "currency" | "amount">, rat
   return rate ? Math.round((amount / rate) * 100) : null;
 }
 
-export function groupReport(
-  lines: ReportLine[],
-  products: (Pick<AppleProduct, "appleId" | "projectId"> & { project: { name: string } | null })[],
-  rates: Record<string, number> | undefined,
-): ReportGroups {
+export function groupReport(lines: ReportLine[], products: GroupableProduct[], rates: Record<string, number> | undefined): ReportGroups {
   const byApple = new Map(products.map((p) => [p.appleId, p]));
-  const groups = new Map<string, ProjectGroup>();
+  const groups = new Map<string, InvoiceGroup>();
   const unassigned: ReportLine[] = [];
   for (const line of lines) {
     const product = line.appleId ? byApple.get(line.appleId) : undefined;
@@ -37,24 +46,31 @@ export function groupReport(
       unassigned.push(line);
       continue;
     }
-    const group = groups.get(product.projectId) ?? {
+    const app = product.app?.projectId === product.projectId ? product.app : null;
+    const key = app ? `app:${app.id}` : `project:${product.projectId}`;
+    const group = groups.get(key) ?? {
+      key,
       projectId: product.projectId,
       projectName: product.project.name,
+      appName: app?.name ?? null,
+      itemName: app?.invoiceItemName ?? null,
+      description: app?.invoiceDescription ?? null,
       lines: [],
       estimatedCents: 0,
     };
     group.lines.push(line);
     const euro = lineEuroCents(line, rates);
     group.estimatedCents = group.estimatedCents === null || euro === null ? null : group.estimatedCents + euro;
-    groups.set(product.projectId, group);
+    groups.set(key, group);
   }
-  return { projects: [...groups.values()].sort((a, b) => a.projectName.localeCompare(b.projectName)), unassigned };
+  const order = (g: InvoiceGroup) => `${g.projectName} ${g.appName ?? ""}`;
+  return { groups: [...groups.values()].sort((a, b) => order(a).localeCompare(order(b))), unassigned };
 }
 
 /**
- * A project proposed for a product: the one whose slug or name appears in the product's SKU or
- * title ("zentap_pro_unlock" → ZenTap). The longest match wins, so "ZenTap" beats a project called
- * "App"; null when nothing matches or two projects match equally well.
+ * A project proposed for a product or app: the one whose slug or name appears in its SKU or title
+ * ("zentap_pro_unlock" → ZenTap). The longest match wins, so "ZenTap" beats a project called "App";
+ * null when nothing matches or two projects match equally well.
  */
 export function suggestProject<T extends { id: string; name: string; slug: string }>(
   product: { sku: string; title: string },

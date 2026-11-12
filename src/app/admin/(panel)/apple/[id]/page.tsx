@@ -13,7 +13,7 @@ import { companyChoices } from "@/lib/appstore/companies";
 import type { EcbRates } from "@/lib/appstore/ecb";
 import { groupReport, lineEuroCents, suggestProject } from "@/lib/appstore/groups";
 import { productsWithProjects } from "@/lib/appstore/apps";
-import { appStoreDescription } from "@/lib/appstore/payload";
+import { appStoreDescription, DEFAULT_DESCRIPTION } from "@/lib/appstore/payload";
 import type { ReportLine } from "@/lib/appstore/report";
 import { todayInItaly } from "@/lib/fiscal/payload";
 import { dateOnly, dateTime, euros } from "@/lib/format";
@@ -146,7 +146,7 @@ export default async function AppleAccountPage({
               const groups = groupReport(lines, products, ecb?.rates);
               const failed = r.invoice?.status === "FAILED";
               const formId = `report-${r.id}`;
-              const estimate = groups.projects.reduce((sum, g) => sum + (g.estimatedCents ?? 0), 0);
+              const estimate = groups.groups.reduce((sum, g) => sum + (g.estimatedCents ?? 0), 0);
               return (
                 <article key={r.id} className="report-card">
                   <header className="report-head">
@@ -182,7 +182,7 @@ export default async function AppleAccountPage({
                       </thead>
                       <tbody>
                         {[
-                          ...groups.projects.flatMap((g) => g.lines.map((l) => ({ project: g.projectName, l }))),
+                          ...groups.groups.flatMap((g) => g.lines.map((l) => ({ project: g.appName ? `${g.projectName} · ${g.appName}` : g.projectName, l }))),
                           ...groups.unassigned.map((l) => ({ project: "Not assigned", l })),
                         ].map(({ project, l }) => {
                           const euro = lineEuroCents(l, ecb?.rates);
@@ -214,19 +214,20 @@ export default async function AppleAccountPage({
                     groups.unassigned.length === 0 && (
                       <form id={formId} action={issueAppleInvoiceAction.bind(null, account.id, r.id)} className="report-form">
                         <div className="fields">
-                          {groups.projects.map((g) => (
-                            <div className="field" key={g.projectId}>
-                              <label htmlFor={`${formId}-${g.projectId}`}>{g.projectName}, euro</label>
+                          {groups.groups.map((g) => (
+                            <div className="field" key={g.key}>
+                              <label htmlFor={`${formId}-${g.key}`}>{g.appName ?? g.projectName}, euro</label>
                               <input
-                                id={`${formId}-${g.projectId}`}
-                                name={`amount_${g.projectId}`}
+                                id={`${formId}-${g.key}`}
+                                name={`amount_${g.key}`}
                                 type="text"
                                 inputMode="decimal"
                                 required
                                 defaultValue={euroInput(g.estimatedCents)}
                               />
                               <span className="hint">
-                                {appStoreDescription(g.projectName, { period: r.period, transactionId: null })}
+                                <strong>{g.itemName || account.itemName}</strong>:{" "}
+                                {appStoreDescription(g.projectName, { period: r.period, transactionId: null }, g.description)}
                               </span>
                             </div>
                           ))}
@@ -295,26 +296,63 @@ export default async function AppleAccountPage({
                 {apps.map((app) => {
                   const sold = products.filter((p) => p.appId === app.id);
                   const suggested = app.projectId ? null : suggestProject({ sku: app.sku, title: app.name }, projects);
+                  const projectName = projects.find((p) => p.id === (app.projectId ?? suggested?.id))?.name ?? app.name;
+                  const custom = Boolean(app.invoiceItemName || app.invoiceDescription);
                   return (
-                    <li key={app.id} className="product-row">
-                      <span>
-                        <strong>{app.name}</strong>
-                        <span className="cell-sub">
-                          {sold.length > 0 ? sold.map((p) => p.title || p.sku).join(", ") : "No sales in the reports read"}
+                    <li key={app.id} className="app-row">
+                      <div className="product-row">
+                        <span>
+                          <strong>{app.name}</strong>
+                          <span className="cell-sub">
+                            {sold.length > 0 ? sold.map((p) => p.title || p.sku).join(", ") : "No sales in the reports read"}
+                          </span>
                         </span>
-                      </span>
-                      <label className="visually-hidden" htmlFor={`app_${app.id}`}>
-                        Project of {app.name}
-                      </label>
-                      <select id={`app_${app.id}`} name={`app_${app.id}`} defaultValue={app.projectId ?? suggested?.id ?? ""}>
-                        <option value="">Not assigned</option>
-                        {projects.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name}
-                            {suggested?.id === project.id ? " (proposed)" : ""}
-                          </option>
-                        ))}
-                      </select>
+                        <label className="visually-hidden" htmlFor={`app_${app.id}`}>
+                          Project of {app.name}
+                        </label>
+                        <select id={`app_${app.id}`} name={`app_${app.id}`} defaultValue={app.projectId ?? suggested?.id ?? ""}>
+                          <option value="">Not assigned</option>
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.name}
+                              {suggested?.id === project.id ? " (proposed)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <details className="app-line" open={custom}>
+                        <summary>Invoice line{custom ? "" : ": default"}</summary>
+                        <div className="fields">
+                          <div className="field">
+                            <label htmlFor={`appItem_${app.id}`}>Line name</label>
+                            <input
+                              id={`appItem_${app.id}`}
+                              name={`appItem_${app.id}`}
+                              type="text"
+                              maxLength={200}
+                              defaultValue={app.invoiceItemName ?? ""}
+                              placeholder={account.itemName}
+                            />
+                          </div>
+                          <div className="field wide">
+                            <label htmlFor={`appDescription_${app.id}`}>Description</label>
+                            <textarea
+                              id={`appDescription_${app.id}`}
+                              name={`appDescription_${app.id}`}
+                              maxLength={1000}
+                              defaultValue={app.invoiceDescription ?? ""}
+                              placeholder={DEFAULT_DESCRIPTION}
+                              aria-describedby={`appDescription_${app.id}-hint`}
+                            />
+                            <span className="hint" id={`appDescription_${app.id}-hint`}>
+                              Empty uses the text shown. <code>{"{app}"}</code> is the project name, <code>{"{periodo}"}</code> the
+                              fiscal month, <code>{"{transaction}"}</code> becomes &ldquo;, Transaction ID: …&rdquo; when you type
+                              one. Example:{" "}
+                              {appStoreDescription(projectName, { period: account.nextPeriod, transactionId: "411399920" }, app.invoiceDescription)}
+                            </span>
+                          </div>
+                        </div>
+                      </details>
                     </li>
                   );
                 })}
@@ -354,7 +392,7 @@ export default async function AppleAccountPage({
               )}
               <div className="form-foot" style={{ paddingTop: 16 }}>
                 <button type="submit" className={`btn${unassignedApps.length || unassigned.length ? "" : " secondary"}`}>
-                  Save projects
+                  Save apps
                 </button>
               </div>
             </form>
