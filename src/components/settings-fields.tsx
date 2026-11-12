@@ -63,6 +63,7 @@ function Field({
   hint,
   inherited,
   wide,
+  only,
   children,
 }: {
   project: ProjectOverrides | null;
@@ -71,6 +72,8 @@ function Field({
   hint?: React.ReactNode;
   inherited: React.ReactNode;
   wide?: boolean;
+  /** Shown only under this fiscal regime. */
+  only?: FiscalRegime;
   children: React.ReactNode;
 }) {
   if (project) {
@@ -82,13 +85,14 @@ function Field({
         custom={project[name] !== null}
         hint={hint}
         wide={wide}
+        only={only}
       >
         {children}
       </OverrideField>
     );
   }
   return (
-    <div className={`field${wide ? " wide" : ""}`}>
+    <div className={`field${wide ? " wide" : ""}`} data-only={only}>
       <label htmlFor={name}>{label}</label>
       {children}
       {hint && (
@@ -110,12 +114,19 @@ export function SettingsFields(props: Props) {
   // What the controls start from: the project's own value when customized, else the company's.
   const value = <K extends OverridableKey>(key: K): Values[K] => (project?.[key] ?? company[key]) as Values[K];
 
-  const idField = (name: OverridableKey & `${string}Id`, label: string, options: Option[] | null, hint?: string) => (
+  const idField = (
+    name: OverridableKey & `${string}Id`,
+    label: string,
+    options: Option[] | null,
+    hint?: React.ReactNode,
+    only?: FiscalRegime,
+  ) => (
     <Field
       project={project}
       name={name}
       label={label}
       hint={hint}
+      only={only}
       inherited={labelOf(options, company[name] as number | null)}
     >
       <IdControl
@@ -131,20 +142,27 @@ export function SettingsFields(props: Props) {
   const ownStatements = parseStatementOverrides(project ? project.fiscalStatements : company.fiscalStatements) ?? {};
   const companyStatements = parseStatementOverrides(company.fiscalStatements) ?? {};
 
+  // A project's regime is the company's. The company form instead follows its regime select (CSS :has).
+  const regimeScope = project ? regime : undefined;
+
   return (
     <>
-      <div className="fields">
+      <div className="fields" data-regime={regimeScope}>
         {idField(
           "vatTypeId",
           "VAT type",
           lookups.vatTypes,
-          regime === "FORFETTARIO" ? "Used for every invoice." : "Used for Italian customers.",
+          <>
+            <span data-only="FORFETTARIO">Used for every invoice.</span>
+            <span data-only="ORDINARIO">Used for Italian customers.</span>
+          </>,
         )}
         {idField(
           "nonTaxableVatTypeId",
           "Non-taxable VAT type",
           lookups.vatTypes,
-          "Ordinario only: EU and extra-EU private customers (art. 7-ter).",
+          "For EU and extra-EU private customers (art. 7-ter).",
+          "ORDINARIO",
         )}
         {idField("paymentAccountId", "Payment account", lookups.paymentAccounts)}
         {idField("paymentMethodId", "Payment method", lookups.paymentMethods)}
@@ -208,10 +226,11 @@ export function SettingsFields(props: Props) {
             name="stampDutyMode"
             label="Stamp duty (bollo)"
             wide
+            only="FORFETTARIO"
             inherited={STAMP_DUTY_LABELS[company.stampDutyMode]}
             hint={
               <>
-                Forfettario only: €2 on invoices above €77.47. <em>Charged to customer</em>: a separate €2
+                €2 on invoices above €77.47. <em>Charged to customer</em>: a separate €2
                 &ldquo;Rimborso imposta di bollo&rdquo; line, the customer pays amount + €2. <em>Included</em>: you bear
                 the €2, the customer pays exactly the amount (fixed checkout prices). <em>Disabled</em>: never applied.
               </>
@@ -235,6 +254,7 @@ export function SettingsFields(props: Props) {
             "Stamp duty VAT type",
             lookups.vatTypes,
             "Charged to customer only: VAT type of the €2 bollo line, excluded under art. 15 DPR 633/72.",
+            "FORFETTARIO",
           )}
         </>
         <Field

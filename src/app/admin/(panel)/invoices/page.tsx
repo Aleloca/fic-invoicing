@@ -151,7 +151,7 @@ export default async function AllInvoicesPage({
             </Link>
           )}
         </div>
-        <div className="btn-row" style={{ flexBasis: "100%", gap: 18, fontSize: 14 }}>
+        <div className="btn-row" style={{ flexBasis: "100%", gap: "6px 18px", fontSize: 14 }}>
           <span className="hint">Quick periods:</span>
           {presets().map((p) => (
             <Link key={p.label} href={href({ from: p.from, to: p.to })}>
