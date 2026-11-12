@@ -162,7 +162,7 @@ export default async function AppleAccountPage({
                       in <a href="#products">Apps</a> to invoice this report.
                     </Notice>
                   )}
-                  <div className="table-wrap">
+                  <div className="table-wrap cards">
                     <table>
                       <thead>
                         <tr>
@@ -188,17 +188,25 @@ export default async function AppleAccountPage({
                           const euro = lineEuroCents(l, ecb?.rates);
                           return (
                             <tr key={`${l.appleId}-${l.currency}`}>
-                              <td>{project}</td>
-                              <td>
-                                {l.title || l.sku}
-                                <span className="cell-sub">{l.units} sold</span>
+                              <td data-label="">{project}</td>
+                              <td data-label="Product">
+                                <span>
+                                  {l.title || l.sku}
+                                  <span className="cell-sub">{l.units} sold</span>
+                                </span>
                               </td>
-                              <td>{l.countries.join(", ")}</td>
-                              <td className="num amount">
-                                {l.amount} <code>{l.currency}</code>
+                              <td data-label="Countries">{l.countries.join(", ")}</td>
+                              <td className="num amount" data-label="Proceeds">
+                                <span>
+                                  {l.amount} <code>{l.currency}</code>
+                                </span>
                               </td>
-                              <td className="num amount">{l.currency === "EUR" ? "—" : (ecb?.rates[l.currency] ?? "—")}</td>
-                              <td className="num amount">{euro !== null ? euros(euro) : "No ECB rate"}</td>
+                              <td className="num amount" data-label="ECB rate">
+                                {l.currency === "EUR" ? "—" : (ecb?.rates[l.currency] ?? "—")}
+                              </td>
+                              <td className="num amount" data-label="Euro">
+                                {euro !== null ? euros(euro) : "No ECB rate"}
+                              </td>
                             </tr>
                           );
                         })}

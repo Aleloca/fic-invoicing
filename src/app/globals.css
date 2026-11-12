@@ -213,8 +213,7 @@ code,
   }
 
   .rail {
-    position: sticky;
-    z-index: 10;
+    position: static;
     height: auto;
     flex-direction: row;
     flex-wrap: wrap;
@@ -232,8 +231,8 @@ code,
     order: 3;
     width: 100%;
     flex-direction: row;
-    gap: 20px;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    gap: 0 18px;
   }
 
   .rail-link {
@@ -254,6 +253,9 @@ code,
   .rail-foot button {
     border-top: 0;
     padding: 0;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
   }
 
   .workspace {
@@ -796,6 +798,42 @@ select:focus-visible,
 textarea:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--red);
+}
+
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  text-align: left;
+}
+
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+input[type="file"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px;
+  border: 2px dashed var(--ink-3);
+  background: var(--paper);
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+input[type="file"]::file-selector-button {
+  min-height: 32px;
+  margin-right: 12px;
+  padding: 0 14px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 input:user-invalid {
@@ -2428,4 +2466,109 @@ details.confirm .confirm-box p {
 
 .login-form .btn-row {
   gap: 20px;
+}
+
+/* ------------------------------------------------------ Phone tweaks */
+
+@media (max-width: 640px) {
+  .filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px 12px;
+    padding: 16px;
+  }
+
+  .filters .field:not(.narrow),
+  .filters > .btn-row {
+    grid-column: 1 / -1;
+  }
+
+  .filters > .btn-row .btn {
+    flex: 1 1 0;
+  }
+
+  .status-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .status-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .status-tab {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .stack .row-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  /* Tables that become label/value cards. */
+  .table-wrap.cards {
+    overflow: visible;
+    border-bottom: 0;
+  }
+
+  .cards table,
+  .cards tbody,
+  .cards tr,
+  .cards td {
+    display: block;
+  }
+
+  .cards thead {
+    display: none;
+  }
+
+  .cards tr {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--hair);
+  }
+
+  .cards td {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 3px 0;
+    border: 0;
+    text-align: right;
+  }
+
+  .cards td::before {
+    content: attr(data-label);
+    flex: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-3);
+    text-align: left;
+  }
+
+  .cards td[data-label=""] {
+    display: block;
+    text-align: left;
+    font-weight: 700;
+  }
+
+  .cards td[data-label=""]::before {
+    content: none;
+  }
+
+  .cards tbody tr:hover {
+    background: none;
+  }
+}
+
+/* --------------------------------------------- Regime-specific fields */
+
+/* A project shows only the fields of its company's regime. */
+.fields[data-regime="FORFETTARIO"] [data-only="ORDINARIO"],
+.fields[data-regime="ORDINARIO"] [data-only="FORFETTARIO"],
+/* The company form follows its regime select as it changes. */
+form:has(#fiscalRegime option[value="FORFETTARIO"]:checked) [data-only="ORDINARIO"],
+form:has(#fiscalRegime option[value="ORDINARIO"]:checked) [data-only="FORFETTARIO"] {
+  display: none;
 }

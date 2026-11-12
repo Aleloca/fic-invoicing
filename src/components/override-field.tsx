@@ -14,6 +14,7 @@ export function OverrideField({
   custom: initiallyCustom,
   hint,
   wide = false,
+  only,
   children,
 }: {
   name: string;
@@ -23,12 +24,14 @@ export function OverrideField({
   custom: boolean;
   hint?: React.ReactNode;
   wide?: boolean;
+  /** Shown only under this fiscal regime. */
+  only?: "FORFETTARIO" | "ORDINARIO";
   children: React.ReactNode;
 }) {
   const [custom, setCustom] = useState(initiallyCustom);
   const hintId = hint ? `${name}-hint` : undefined;
   return (
-    <div className={`field override${custom ? " is-custom" : ""}${wide ? " wide" : ""}`}>
+    <div className={`field override${custom ? " is-custom" : ""}${wide ? " wide" : ""}`} data-only={only}>
       <div className="override-head">
         {custom ? <label htmlFor={name}>{label}</label> : <span className="label">{label}</span>}
         <label className="override-switch">
